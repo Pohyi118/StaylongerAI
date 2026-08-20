@@ -1,0 +1,10 @@
+{
+  "description": "This interactive web application guides users through personalized prompts to enhance creativity and productivity, ideal for writers and content creators.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
