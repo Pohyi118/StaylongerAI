@@ -1,82 +1,70 @@
 @echo off
-setlocal
-
-REM Always resolve paths from the repository root, even when this file is
-REM launched from Explorer or from a different working directory.
-for %%I in ("%~dp0..") do set "STAYLONGER_ROOT=%%~fI"
-set "STAYLONGER_VENV=%STAYLONGER_ROOT%\.venv"
-set "STAYLONGER_PYTHON=%STAYLONGER_VENV%\Scripts\python.exe"
-
-pushd "%STAYLONGER_ROOT%" || exit /b 1
-
 echo ====================================
-echo Starting StayLongerAI demo stack
+echo Starting DevLeague Hackathon Stack
 echo ====================================
 echo.
 
-where python >nul 2>&1
+REM Check if Python is available
+python --version >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Python is not installed or is not available on PATH.
-    popd
+    echo ERROR: Python is not installed or not in PATH
+    pause
     exit /b 1
 )
 
-where node >nul 2>&1
+REM Check if Node is available
+node --version >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Node.js is not installed or is not available on PATH.
-    popd
+    echo ERROR: Node.js is not installed or not in PATH
+    pause
     exit /b 1
 )
 
-where npm.cmd >nul 2>&1
+echo [1/3] Installing Python dependencies...
+pip install -r requirements.txt
 if errorlevel 1 (
-    echo ERROR: npm is not installed or is not available on PATH.
-    popd
-    exit /b 1
+    echo WARNING: Some Python dependencies may have failed to install
 )
-
-if not exist "%STAYLONGER_PYTHON%" (
-    echo [1/4] Creating isolated Python environment...
-    python -m venv "%STAYLONGER_VENV%"
-    if errorlevel 1 goto :failure
-) else (
-    echo [1/4] Using existing Python environment.
-)
-
-echo [2/4] Installing backend dependencies...
-"%STAYLONGER_PYTHON%" -m pip install -r "%STAYLONGER_ROOT%\requirements.txt"
-if errorlevel 1 goto :failure
-
-echo [3/4] Installing frontend dependencies...
-pushd "%STAYLONGER_ROOT%\frontend" || goto :failure
-call npm.cmd install
-if errorlevel 1 (
-    popd
-    goto :failure
-)
-popd
-
-if not exist "%STAYLONGER_ROOT%\backend\.env" (
-    echo.
-    echo NOTE: backend\.env is missing. The app will run in demo mode.
-    echo       Copy backend\.env.example to backend\.env to configure Twilio.
-)
-
-echo [4/4] Starting backend and frontend...
-start "StayLongerAI Backend - 8000" /D "%STAYLONGER_ROOT%\backend" cmd /k ""%STAYLONGER_PYTHON%" -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
-start "StayLongerAI Frontend - 8443" /D "%STAYLONGER_ROOT%\frontend" cmd /k "npm.cmd run dev"
 
 echo.
-echo Backend:  http://localhost:8000
-echo API docs: http://localhost:8000/docs
+echo [2/3] Installing Frontend dependencies...
+cd frontend
+call npm install
+if errorlevel 1 (
+    echo ERROR: Failed to install frontend dependencies
+    cd ..
+    pause
+    exit /b 1
+)
+cd ..
+
+echo.
+echo [3/3] Starting servers...
+echo.
+echo Backend will run on: http://localhost:8000
+echo Frontend will run on: http://localhost:8443
+echo.
+echo Press Ctrl+C in either window to stop the servers
+echo.
+
+REM Start backend in a new window
+start "Backend Server (Port 8000)" cmd /k "cd backend && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+
+REM Wait a moment for backend to start
+timeout /t 3 /nobreak >nul
+
+REM Start frontend in a new window
+start "Frontend Server (Port 8443)" cmd /k "cd frontend && npm run dev"
+
+echo.
+echo ====================================
+echo Servers are starting!
+echo ====================================
+echo.
+echo Backend: http://localhost:8000
 echo Frontend: http://localhost:8443
+echo API Docs: http://localhost:8000/docs
 echo.
-echo Each server runs in its own terminal window. Close both windows to stop.
-popd
-exit /b 0
-
-:failure
+echo Check the new terminal windows for server logs
 echo.
-echo ERROR: Setup failed. Review the message above and try again.
-popd
-exit /b 1
+pause
