@@ -1,7 +1,6 @@
 import { BarChart3, TrendingUp, ShieldCheck, Download, Calendar, Activity, ChevronDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { cn } from "../App";
 
 const revenueData = [
   { name: 'W1', protected: 12000, lost: 4000 },
