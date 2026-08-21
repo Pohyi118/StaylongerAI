@@ -8,7 +8,7 @@ import os
 import re
 import uuid
 import httpx
-from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Header
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 from local_vision import parse_handwritten_inventory
 from uplift_engine import UpliftEngine
 from solana_agent import LocalSolanaAgent
+import whatsapp_provider
+from vision import extract_inventory
 
 load_dotenv()
 
@@ -44,28 +46,116 @@ CUSTOMER_DATA = []  # Stores customer records
 PROCESSED_PAYMENTS = set()  # Idempotency: track processed payment references
 SESSION_TOKENS = {}  # reward claim session token -> phone number
 
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
-PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "vaultagent_local_token")
+def _first_env(*names: str) -> str:
+    """Return the first non-empty environment variable among the given names."""
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+    return ""
+
+
+# Meta WhatsApp Cloud API configuration.
+# main.py reads the META_WHATSAPP_* names documented in .env.example FIRST and
+# falls back to the legacy short names (WHATSAPP_TOKEN / PHONE_NUMBER_ID / ...)
+# so both existing and fresh .env files keep working.
+WHATSAPP_TOKEN = _first_env("META_WHATSAPP_ACCESS_TOKEN", "WHATSAPP_TOKEN")
+PHONE_NUMBER_ID = _first_env("META_WHATSAPP_PHONE_NUMBER_ID", "PHONE_NUMBER_ID")
+VERIFY_TOKEN = _first_env("META_WHATSAPP_VERIFY_TOKEN", "VERIFY_TOKEN") or "vaultagent_local_token"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-META_APP_SECRET = os.getenv("META_APP_SECRET")
-META_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages" if PHONE_NUMBER_ID else None
+META_APP_SECRET = _first_env("META_APP_SECRET", "WHATSAPP_APP_SECRET")
+META_GRAPH_API_VERSION = os.getenv("META_GRAPH_API_VERSION", "v20.0")
+if META_GRAPH_API_VERSION and not META_GRAPH_API_VERSION.startswith("v"):
+    META_GRAPH_API_VERSION = f"v{META_GRAPH_API_VERSION}"
+META_API_URL = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{PHONE_NUMBER_ID}/messages" if PHONE_NUMBER_ID else None
 HEADERS = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"} if WHATSAPP_TOKEN else {"Content-Type": "application/json"}
 
 
-def generate_dashboard_url(phone_number: str) -> str:
+def _digits_only(value) -> str:
+    """Strip everything except digits (Meta expects E.164 without '+'/spaces)."""
+    return re.sub(r"\D", "", str(value))
+
+
+def _normalize_phone(value) -> str:
+    """Normalize a phone value for comparisons (digits with a leading '+')."""
+    digits = _digits_only(value)
+    return f"+{digits}" if digits else ""
+
+
+def _safe_float(value, default: float) -> float:
+    """Parse a float defensively; NaN and unparseable values fall back to default."""
+    try:
+        parsed = float(value)
+        return default if parsed != parsed else parsed  # NaN check
+    except (TypeError, ValueError):
+        return default
+
+
+# --------------------------------------------------------------------------- #
+# Localized WhatsApp copy (en / ms). Language is per-customer, or from
+# WHATSAPP_TEMPLATE_LANGUAGE. The spec's exact copy is preserved for English.
+# --------------------------------------------------------------------------- #
+VALUE_VAULT_BODY = {
+    "en": "Boss, you didn't use the {feature} this month. We put RM{amount} in your Value Vault.",
+    "ms": "Boss, bulan ini anda tidak menggunakan {feature}. Kami telah meletakkan RM{amount} ke dalam Value Vault anda.",
+}
+REVERSE_ONBOARDING_FOLLOWUP = {
+    "en": "Enjoy the lunch! Was the {feature} too hard to set up? Just take a photo of your handwritten inventory list and reply here.",
+    "ms": "Nikmati makan tengah hari anda! Adakah {feature} terlalu sukar untuk disediakan? Ambil sahaja gambar senarai inventori tulisan tangan anda dan balas di sini.",
+}
+BUTTON_CLAIM = {"en": "Claim Reward", "ms": "Tuntut Ganjaran"}
+DONE_MESSAGE = {"en": "✅ Done! Database updated.", "ms": "✅ Siap! Pangkalan data telah dikemas kini."}
+
+
+def localize(table: dict, lang: str, **kwargs) -> str:
+    """Pick a localized string from a table, falling back to English."""
+    lang = (lang or "en").lower()
+    template = table.get(lang) or table.get(lang.split("-")[0]) or table["en"]
+    return template.format(**kwargs) if kwargs else template
+
+
+def _customer_for_phone(sender: str) -> dict | None:
+    for customer in CUSTOMER_DATA:
+        if customer.get("phone") and _normalize_phone(customer.get("phone")) == _normalize_phone(sender):
+            return customer
+    return None
+
+
+def _feature_for_sender(sender: str) -> str:
+    customer = _customer_for_phone(sender)
+    return str((customer or {}).get("feature") or os.getenv("VALUE_VAULT_FEATURE", "Inventory Tracker")).strip()
+
+
+def _language_for_sender(sender: str) -> str:
+    customer = _customer_for_phone(sender)
+    return str((customer or {}).get("language") or os.getenv("WHATSAPP_TEMPLATE_LANGUAGE", "en")).lower()
+
+
+def create_claim_link(phone_number: str) -> str:
+    """Create a single-use, TTL-scoped 1-tap claim link for a phone number.
+
+    The token maps back to the phone number in SESSION_TOKENS so /reward can
+    validate the claim later.
+    """
     base_url = os.getenv("DASHBOARD_BASE_URL", "http://localhost:8000")
     session_token = uuid.uuid4().hex
-    SESSION_TOKENS[session_token] = phone_number
-    USER_STATES[phone_number] = "claiming_reward"
-    return f"{base_url.rstrip('/')}/reward?user={phone_number}&token={session_token}"
+    phone_key = _digits_only(phone_number)
+    SESSION_TOKENS[session_token] = phone_key
+    return f"{base_url.rstrip('/')}/reward?user={phone_key}&token={session_token}"
+
+
+def generate_dashboard_url(phone_number: str) -> str:
+    """Legacy alias: create the claim link and flip the sender into claiming state."""
+    claim_url = create_claim_link(phone_number)
+    USER_STATES[_digits_only(phone_number)] = "claiming_reward"
+    return claim_url
 
 
 def classify_sender(sender: str) -> str:
     # Reward gate: only Persuadables receive a payout. No phone->customer
     # mapping exists, so unmapped senders default to Sleeping Dog (no reward).
     for customer in CUSTOMER_DATA:
-        if str(customer.get("phone") or "") == sender:
+        if customer.get("phone") and _normalize_phone(customer.get("phone")) == _normalize_phone(sender):
             features = [
                 float(customer.get("days_inactive", 0)),
                 float(customer.get("login_frequency", 0)),
@@ -74,6 +164,158 @@ def classify_sender(sender: str) -> str:
             ]
             return uplift.classify_user(features)
     return "Sleeping Dog"
+
+
+def customer_features(customer: dict) -> list[float]:
+    """Build the four UpliftEngine features from a customer record.
+
+    Order: [days_inactive, login_frequency, feature_usage_pct, past_support_tickets]
+    Values fall back to sensible derived defaults so imported rows without every
+    column can still be scored by the Uplift Engine.
+    """
+    health = _safe_float(customer.get("health"), 50)
+    return [
+        _safe_float(customer.get("days_inactive"), 100 - health),
+        _safe_float(customer.get("login_frequency"), 1),
+        _safe_float(customer.get("feature_usage_pct"), health / 100.0),
+        _safe_float(customer.get("past_support_tickets"), 0),
+    ]
+
+
+def parse_mrr_rm(mrr: str) -> float:
+    """Parse 'RM4,200', '4200', or 'RM 12,460.50' into a float."""
+    digits = re.sub(r"[^0-9.]", "", str(mrr or ""))
+    try:
+        return float(digits)
+    except ValueError:
+        return 0.0
+
+
+def build_value_vault_reward(customer: dict) -> dict:
+    """Calculate the Value Vault reward for a customer.
+
+    Rule: reward = MRR * VALUE_VAULT_REWARD_PCT%, clamped to
+    [VALUE_VAULT_REWARD_MIN_RM, VALUE_VAULT_REWARD_MAX_RM].
+    """
+    mrr_rm = parse_mrr_rm(str(customer.get("mrr") or ""))
+    pct = _safe_float(os.getenv("VALUE_VAULT_REWARD_PCT"), 10)
+    min_rm = _safe_float(os.getenv("VALUE_VAULT_REWARD_MIN_RM"), 10)
+    max_rm = _safe_float(os.getenv("VALUE_VAULT_REWARD_MAX_RM"), 150)
+    partner = (os.getenv("VALUE_VAULT_PARTNER", "GrabFood") or "").strip() or "GrabFood"
+
+    amount = round(max(min_rm, min(max_rm, mrr_rm * pct / 100.0)), 2)
+    label_amount = f"{amount:.2f}".rstrip("0").rstrip(".")
+    return {
+        "partner": partner,
+        "amount_rm": amount,
+        "currency": "RM",
+        "label": f"{partner} voucher worth RM{label_amount}",
+        "expires_in_hours": _safe_float(os.getenv("REWARD_LINK_TTL_HOURS"), 24),
+    }
+
+
+async def send_interactive_cta(to_number: str, body_text: str, button_text: str, url: str) -> dict | None:
+    """Send a WhatsApp interactive '1-tap' URL-button message (Meta Cloud API).
+
+    cta_url buttons require a public HTTPS URL (e.g. your ngrok frontend). When
+    the URL is not HTTPS or credentials are missing, returns None and the caller
+    falls back to a plain text message containing the link.
+    """
+    if not url.lower().startswith("https://"):
+        return None
+    if not PHONE_NUMBER_ID or not WHATSAPP_TOKEN:
+        return None
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": _digits_only(to_number),
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "header": {"type": "text", "text": "🎁 Value Vault Reward"},
+            "body": {"text": body_text},
+            "action": {
+                "name": "cta_url",
+                "parameters": {"display_text": button_text, "url": url},
+            },
+        },
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(META_API_URL, headers=HEADERS, json=payload)
+        response.raise_for_status()
+        return response.json()
+
+
+async def trigger_value_vault_offer(customer: dict) -> dict:
+    """CORE MISSING LOGIC: outbound Value Vault rescue (spec "1-Tap WhatsApp Trigger").
+
+    Steps:
+      1. Score the customer with the Uplift Engine.
+      2. If classified 'Persuadable', calculate the Value Vault reward.
+      3. Build a single-use, password-less claim link.
+      4. Automatically send a localized interactive template with a
+         "Claim Reward" URL button (or fall back to a text link).
+
+    Returns a machine-readable result so callers can report exactly what
+    happened (sent / skipped / not configured).
+    """
+    customer_id = customer.get("id")
+    phone = _digits_only(str(customer.get("phone") or ""))
+    if not phone:
+        return {"customer_id": customer_id, "status": "skipped", "reason": "no_phone"}
+
+    if not whatsapp_provider.configured():
+        print(
+            f"trigger_value_vault_offer: WhatsApp provider '{whatsapp_provider.PROVIDER}' "
+            f"not configured; NOT sending offer to {phone}"
+        )
+        return {
+            "customer_id": customer_id,
+            "phone": phone,
+            "status": "skipped",
+            "reason": "whatsapp_not_configured",
+            "provider": whatsapp_provider.PROVIDER,
+        }
+
+    score = uplift.score_user(customer_features(customer))
+    if score["quadrant"] != "Persuadable":
+        return {
+            "customer_id": customer_id,
+            "phone": phone,
+            "status": "skipped",
+            "quadrant": score["quadrant"],
+            "foe_score": score["foe_score"],
+        }
+
+    reward = build_value_vault_reward(customer)
+    feature = str(customer.get("feature") or os.getenv("VALUE_VAULT_FEATURE", "Inventory Tracker")).strip()
+    lang = str(customer.get("language") or os.getenv("WHATSAPP_TEMPLATE_LANGUAGE", "en")).lower()
+    amount_label = f"{reward['amount_rm']:.2f}".rstrip("0").rstrip(".")
+
+    claim_url = create_claim_link(phone)
+    body = localize(VALUE_VAULT_BODY, lang, feature=feature, amount=amount_label)
+    button_label = localize(BUTTON_CLAIM, lang)
+    template_name = os.getenv("WHATSAPP_TEMPLATE_NAME", "value_vault_rescue")
+
+    sent = await whatsapp_provider.send_template(
+        phone, template_name, lang, body, button_label, claim_url
+    )
+    sent_via = "template" if sent else "text"
+    if sent is None:
+        await whatsapp_provider.send_text(phone, f"{body}\n\n{claim_url}")
+
+    return {
+        "customer_id": customer_id,
+        "phone": phone,
+        "status": "sent",
+        "quadrant": "Persuadable",
+        "foe_score": score["foe_score"],
+        "feature": feature,
+        "language": lang,
+        "reward": reward,
+        "claim_url": claim_url,
+        "sent_via": sent_via,
+    }
 
 
 def build_dashboard_payload() -> dict:
@@ -166,44 +408,12 @@ def sanitize_inventory_items(items: list[dict]) -> list[dict]:
 
 
 async def process_inventory_image(image_bytes: bytes, sender: str) -> list[dict]:
-    local_items = await parse_handwritten_inventory(image_bytes)
-    if not GEMINI_API_KEY:
-        return local_items
-
-    try:
-        mime_type = "image/jpeg"
-        encoded = base64.b64encode(image_bytes).decode("utf-8")
-        text_prompt = (
-            "Extract the inventory from this handwritten or printed image. "
-            "Return ONLY valid JSON as a list of objects with fields 'item' and 'quantity'. "
-            "If you are unsure, use the best estimate and keep the values concise."
-        )
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"text": text_prompt},
-                    {"inline_data": {"mime_type": mime_type, "data": encoded}},
-                ]
-            }],
-            "generationConfig": {"responseMimeType": "application/json"},
-        }
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}",
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-            text = data["candidates"][0]["content"]["parts"][0].get("text", "")
-            parsed = json.loads(text)
-            if isinstance(parsed, list) and parsed:
-                sanitized = sanitize_inventory_items(parsed)
-                if sanitized:
-                    return sanitized
-    except Exception as exc:
-        print(f"Gemini parsing failed, falling back to local OCR: {exc}")
-
-    return local_items
+    # Reverse Onboarding (Vision LLM): route the photo to Claude 3.5 Sonnet,
+    # with Gemini as a fallback, then local OCR as the final safety net.
+    llm_items = await extract_inventory(image_bytes)
+    if llm_items:
+        return llm_items
+    return await parse_handwritten_inventory(image_bytes)
 
 @app.get("/")
 async def home():
@@ -211,7 +421,14 @@ async def home():
 
 @app.get("/health")
 async def healthcheck():
-    return {"status": "ok", "verify_token_configured": bool(VERIFY_TOKEN), "solana_configured": bool(os.getenv("SOLANA_PRIVATE_KEY_HEX") or os.getenv("SOLANA_PRIVATE_KEY"))}
+    return {
+        "status": "ok",
+        "verify_token_configured": bool(VERIFY_TOKEN),
+        "whatsapp_provider": whatsapp_provider.PROVIDER,
+        "whatsapp_configured": whatsapp_provider.configured(),
+        "vision_provider": "anthropic" if os.getenv("ANTHROPIC_API_KEY") else ("gemini" if GEMINI_API_KEY else "ocr"),
+        "solana_configured": bool(os.getenv("SOLANA_PRIVATE_KEY_HEX") or os.getenv("SOLANA_PRIVATE_KEY")),
+    }
 
 @app.get("/api/dashboard")
 async def dashboard_summary():
@@ -254,9 +471,29 @@ def build_customer_record(row: dict, idx: int) -> dict | None:
         "Persuadable" if health < 60 or risk_value > 50 else "VIP"
     )
 
+    phone_raw = (
+        row.get("phone")
+        or row.get("whatsapp")
+        or row.get("mobile")
+        or row.get("phone_number")
+        or row.get("contact")
+        or ""
+    )
     customer = {
         "id": idx,
         "name": str(name).strip(),
+        "phone": str(phone_raw).strip(),
+        "feature": str(
+            row.get("feature")
+            or row.get("unused_feature")
+            or row.get("module")
+            or os.getenv("VALUE_VAULT_FEATURE", "Inventory Tracker")
+        ).strip(),
+        "language": str(row.get("language") or row.get("locale") or os.getenv("WHATSAPP_TEMPLATE_LANGUAGE", "en")).strip(),
+        "days_inactive": _safe_float(row.get("days_inactive"), 100 - health),
+        "login_frequency": _safe_float(row.get("login_frequency"), 1),
+        "feature_usage_pct": _safe_float(row.get("feature_usage_pct"), health / 100.0),
+        "past_support_tickets": _safe_float(row.get("past_support_tickets"), 0),
         "plan": str(plan).strip(),
         "mrr": str(mrr).strip() if str(mrr).strip() else "RM0",
         "health": health,
@@ -275,7 +512,7 @@ async def customers_summary():
     return {"customers": CUSTOMER_DATA}
 
 @app.post("/api/customers/import")
-async def import_customers(file: UploadFile = File(...)):
+async def import_customers(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     filename = file.filename or "customer_import"
     file_ext = os.path.splitext(filename)[1].lower()
     parsed_rows = []
@@ -312,6 +549,17 @@ async def import_customers(file: UploadFile = File(...)):
         if imported_customers:
             CUSTOMER_DATA.extend(imported_customers)
 
+            # ---- CORE PRODUCT FLOW: auto-send Value Vault WhatsApp offers ----
+            # Any imported customer with a phone number that the Uplift Engine
+            # classifies as "Persuadable" gets an automatic WhatsApp message
+            # with a 1-tap claim link. Runs in the background so the upload
+            # response is not blocked. Disable with
+            # AUTO_SEND_VALUE_VAULT_ON_IMPORT=false.
+            if os.getenv("AUTO_SEND_VALUE_VAULT_ON_IMPORT", "true").lower() == "true":
+                for record in imported_customers:
+                    if str(record.get("phone") or "").strip():
+                        background_tasks.add_task(trigger_value_vault_offer, record)
+
         return {
             "status": "success",
             "filename": filename,
@@ -320,6 +568,36 @@ async def import_customers(file: UploadFile = File(...)):
         }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not process uploaded file: {str(exc)}")
+
+
+@app.get("/api/value-vault/scan")
+async def value_vault_scan():
+    """Preview: score every customer with the Uplift Engine.
+
+    No messages are sent. This is the "who would we rescue" report for the
+    demo and for debugging the classification threshold.
+    """
+    previews = []
+    for customer in CUSTOMER_DATA:
+        score = uplift.score_user(customer_features(customer))
+        previews.append({
+            "id": customer.get("id"),
+            "name": customer.get("name"),
+            "phone": customer.get("phone"),
+            "quadrant": score["quadrant"],
+            "foe_score": score["foe_score"],
+            "reward": build_value_vault_reward(customer) if score["quadrant"] == "Persuadable" else None,
+        })
+    return {"customers": previews}
+
+
+@app.post("/api/customers/{customer_id}/value-vault/offer")
+async def trigger_customer_value_vault(customer_id: int):
+    """Manually trigger the Value Vault WhatsApp offer for one customer."""
+    customer = next((c for c in CUSTOMER_DATA if c.get("id") == customer_id), None)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return await trigger_value_vault_offer(customer)
 
 @app.get("/webhook")
 async def verify_webhook(request: Request):
@@ -487,18 +765,6 @@ async def download_media(media_id: str) -> bytes:
         return img_res.content
 
 async def send_message(to_number: str, text: str):
-    if not PHONE_NUMBER_ID or not WHATSAPP_TOKEN:
-        print("WhatsApp credentials missing; skipping outbound message.")
-        return
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to_number,
-        "type": "text",
-        "text": {"body": text}
-    }
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(META_API_URL, headers=HEADERS, json=payload)
-        response.raise_for_status()
-        return response.json()
+    """Send a plain WhatsApp text message (delegates to the active BSP)."""
+    return await whatsapp_provider.send_text(to_number, text)
 
