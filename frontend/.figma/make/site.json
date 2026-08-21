@@ -1,5 +1,6 @@
 {
-  "description": "This interactive web application guides users through personalized prompts to enhance creativity and productivity, ideal for writers and content creators.",
+  "title": "StayLongerAI",
+  "description": "AI-assisted customer retention, WhatsApp inventory onboarding, and demo-safe rewards.",
   "robots": {
     "index": false
   },

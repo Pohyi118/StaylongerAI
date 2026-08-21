@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { Users, Search, Filter, Target, Heart, PauseCircle, Trash2, Crown, ChevronRight } from "lucide-react";
 import { cn } from "../App";
-import { fetchJson } from "../lib/api";
+import { apiUrl, fetchJson } from "../lib/api";
 
 const CUSTOMER_FALLBACK = [
   { id: 1, name: "Acme Corp", plan: "Enterprise", mrr: "RM12,460", health: 31, risk: "87%", segment: "VIP", status: "Human Alert", icon: "Crown", color: "text-brand", bg: "bg-brand/10", border: "border-brand/20" },
@@ -27,16 +26,10 @@ export default function Customers() {
   const [selectedSegment, setSelectedSegment] = useState<"All" | "VIP" | "Persuadable">("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const navigate = useNavigate();
-
-  const handleAction = (route: string) => {
-    navigate(route);
-  };
-
   const handleImportCustomers = async () => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".csv,.xlsx,.xls,.json,.txt,.pdf";
+    input.accept = ".csv,.json,.txt";
     input.multiple = false;
 
     input.onchange = async (event) => {
@@ -47,7 +40,7 @@ export default function Customers() {
       formData.append("file", file);
 
       try {
-        const response = await fetch("/api/customers/import", {
+        const response = await fetch(apiUrl("/api/customers/import"), {
           method: "POST",
           body: formData,
         });

@@ -1,6 +1,5 @@
 import { Bell, ShieldAlert, Activity, Crown, AlertTriangle, ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { cn } from "../App";
 
 export default function Alerts() {
   const navigate = useNavigate();

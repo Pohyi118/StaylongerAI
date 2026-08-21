@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, Activity, ShieldAlert, Target, Heart, PauseCircle, Trash2, Crown, ChevronRight, TrendingUp, Gift, CreditCard, ArrowRight } from "lucide-react";
+import { Sparkles, Activity, ShieldAlert, Target, Heart, PauseCircle, Trash2, Crown, ChevronRight, TrendingUp, Gift, CreditCard, ArrowRight, Package } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { fetchJson } from "../lib/api";
 
@@ -23,6 +23,18 @@ type DashboardRecord = {
   vipAccounts: Array<{ name: string; plan: string; revenueAtRisk: string; healthScore: string; status: string }>;
   segments: Array<{ title: string; description: string; value: number; action: string; theme: string }>;
   rescues: Array<{ name: string; time: string; reward: string; type: string; status: string; network: string }>;
+  inventory: InventoryRecord[];
+};
+
+type InventoryRecord = {
+  id: string;
+  source: string;
+  sender: string;
+  receivedAt: string;
+  itemCount: number;
+  items: Array<{ item: string; quantity: string | number }>;
+  processor: string;
+  paymentStatus: string;
 };
 
 const DEFAULT_DASHBOARD: DashboardRecord = {
@@ -69,11 +81,25 @@ const DEFAULT_DASHBOARD: DashboardRecord = {
     { name: "ScaleForge", time: "45m ago", reward: "Pause Subscription", type: "Billing", status: "Executed", network: "Internal" },
     { name: "OrbitWorks", time: "2h ago", reward: "Shopee RM30", type: "Value Vault", status: "Claimed", network: "x402/Solana" },
   ],
+  inventory: [],
 };
+
+function formatInventoryTime(value: string): string {
+  const receivedAt = new Date(value);
+  if (Number.isNaN(receivedAt.getTime())) return value;
+
+  return receivedAt.toLocaleString([], {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
 
 export default function Dashboard() {
   const [dashboard, setDashboard] = useState<DashboardRecord>(DEFAULT_DASHBOARD);
   const navigate = useNavigate();
+  const recentInventory = [...dashboard.inventory]
+    .sort((left, right) => Date.parse(right.receivedAt) - Date.parse(left.receivedAt))
+    .slice(0, 3);
 
   const handleAction = (route: string) => {
     navigate(route);
@@ -91,21 +117,40 @@ export default function Dashboard() {
 
   useEffect(() => {
     let isMounted = true;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    let requestController: AbortController | undefined;
 
-    fetchJson<DashboardRecord>("/api/dashboard")
-      .then((data) => {
+    const loadDashboard = async () => {
+      requestController = new AbortController();
+
+      try {
+        const data = await fetchJson<DashboardRecord>("/api/dashboard", {
+          cache: "no-store",
+          signal: requestController.signal,
+        });
+
         if (isMounted) {
-          setDashboard(data);
+          setDashboard({
+            ...DEFAULT_DASHBOARD,
+            ...data,
+            inventory: Array.isArray(data.inventory) ? data.inventory : [],
+          });
         }
-      })
-      .catch(() => {
+      } catch {
+        // Keep the last successful payload (or the built-in demo data) available.
+      } finally {
         if (isMounted) {
-          setDashboard(DEFAULT_DASHBOARD);
+          pollTimer = setTimeout(loadDashboard, 5000);
         }
-      });
+      }
+    };
+
+    void loadDashboard();
 
     return () => {
       isMounted = false;
+      requestController?.abort();
+      if (pollTimer) clearTimeout(pollTimer);
     };
   }, []);
 
@@ -189,6 +234,55 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      {dashboard.inventory.length > 0 && (
+        <div className="glass-card p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center">
+                <Package className="w-5 h-5 text-brand" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">Recent WhatsApp Inventory</h3>
+                <p className="text-sm text-muted-foreground">Structured items extracted from customer uploads.</p>
+              </div>
+            </div>
+            <span className="text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1.5 rounded-full w-fit">
+              {dashboard.inventory.length} processed
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            {recentInventory.map((record) => (
+              <div key={record.id} className="bg-white/50 border border-border rounded-2xl p-4">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <div className="font-bold text-sm">{record.sender}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{formatInventoryTime(record.receivedAt)}</div>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wide bg-brand/10 text-brand px-2 py-1 rounded">
+                    {record.processor}
+                  </span>
+                </div>
+
+                <div className="space-y-1.5">
+                  {record.items.slice(0, 3).map((item, index) => (
+                    <div key={`${record.id}-${item.item}-${index}`} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-foreground truncate">{item.item}</span>
+                      <span className="font-semibold text-muted-foreground shrink-0">× {item.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between gap-3 mt-4 pt-3 border-t border-border text-xs text-muted-foreground">
+                  <span>{record.itemCount} items</span>
+                  <span className="capitalize">Reward: {record.paymentStatus.replace(/_/g, " ")}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="glass-card p-6 border-l-4 border-l-[#FF5A5F] relative overflow-hidden bg-gradient-to-r from-[#FF5A5F]/5 to-transparent">
         <div className="absolute top-0 right-0 p-4 opacity-20">
