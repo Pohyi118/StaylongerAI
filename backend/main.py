@@ -1,4 +1,3 @@
-import base64
 import csv
 import hashlib
 import hmac
@@ -212,38 +211,6 @@ def build_value_vault_reward(customer: dict) -> dict:
         "label": f"{partner} voucher worth RM{label_amount}",
         "expires_in_hours": _safe_float(os.getenv("REWARD_LINK_TTL_HOURS"), 24),
     }
-
-
-async def send_interactive_cta(to_number: str, body_text: str, button_text: str, url: str) -> dict | None:
-    """Send a WhatsApp interactive '1-tap' URL-button message (Meta Cloud API).
-
-    cta_url buttons require a public HTTPS URL (e.g. your ngrok frontend). When
-    the URL is not HTTPS or credentials are missing, returns None and the caller
-    falls back to a plain text message containing the link.
-    """
-    if not url.lower().startswith("https://"):
-        return None
-    if not PHONE_NUMBER_ID or not WHATSAPP_TOKEN:
-        return None
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": _digits_only(to_number),
-        "type": "interactive",
-        "interactive": {
-            "type": "cta_url",
-            "header": {"type": "text", "text": "🎁 Value Vault Reward"},
-            "body": {"text": body_text},
-            "action": {
-                "name": "cta_url",
-                "parameters": {"display_text": button_text, "url": url},
-            },
-        },
-    }
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(META_API_URL, headers=HEADERS, json=payload)
-        response.raise_for_status()
-        return response.json()
 
 
 async def trigger_value_vault_offer(customer: dict) -> dict:
@@ -632,6 +599,89 @@ def verify_whatsapp_signature(payload: bytes, signature: str | None) -> bool:
     except Exception:
         return False
 
+def _normalize_inbound(data: dict) -> dict | None:
+    """Normalize inbound webhook payloads from Meta, Wati, or SleekFlow into:
+
+        {"sender", "type", "text", "button_id", "media_id", "media_url"}
+
+    Meta and SleekFlow nest the message; Wati sends a flat object. This keeps
+    the listener provider-agnostic.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    provider = whatsapp_provider.PROVIDER
+
+    if provider == "wati":
+        sender = data.get("waId") or data.get("phone") or data.get("from")
+        mtype = str(data.get("type") or "text").lower()
+        text = data.get("text") or data.get("caption") or ""
+        button_id = None
+        if mtype == "interactive":
+            inter = data.get("interactive")
+            if isinstance(inter, dict):
+                button_id = inter.get("buttonId")
+            else:
+                button_id = data.get("buttonId") or data.get("buttonText")
+        media = data.get("media")
+        if isinstance(media, dict):
+            media_url, media_id = media.get("url"), media.get("id")
+        else:
+            media_url, media_id = data.get("mediaUrl"), data.get("mediaId")
+        return {"sender": sender, "type": mtype, "text": text, "button_id": button_id,
+                "media_id": media_id, "media_url": media_url}
+
+    if provider == "sleekflow":
+        d = data.get("data") if isinstance(data.get("data"), dict) else data
+        frm = d.get("from")
+        sender = frm.get("phone") if isinstance(frm, dict) else (frm or d.get("phone"))
+        msg = d.get("message") if isinstance(d.get("message"), dict) else d
+        mtype = str(msg.get("type") or "text").lower()
+        if isinstance(msg.get("text"), dict):
+            text = (msg.get("text") or {}).get("body", "")
+        else:
+            text = str(msg.get("text") or "")
+        inter = msg.get("interactive") if isinstance(msg.get("interactive"), dict) else {}
+        button_id = (inter.get("button_reply") or {}).get("id") if inter else None
+        media = msg.get("image") if isinstance(msg.get("image"), dict) else (
+            msg.get("media") if isinstance(msg.get("media"), dict) else {})
+        return {"sender": sender, "type": mtype, "text": text, "button_id": button_id,
+                "media_id": media.get("id"), "media_url": media.get("url")}
+
+    # Meta (default)
+    try:
+        entry = (data.get("entry") or [{}])[0]
+        changes = (entry.get("changes") or [{}])[0].get("value", {})
+        messages = changes.get("messages") or []
+        if not messages:
+            return None
+        message = messages[0]
+        sender = message.get("from")
+        mtype = str(message.get("type") or "").lower()
+        text = (message.get("text") or {}).get("body", "")
+        inter = message.get("interactive") or {}
+        button_id = (inter.get("button_reply") or {}).get("id")
+        media = message.get("image") or {}
+        return {"sender": sender, "type": mtype, "text": text, "button_id": button_id,
+                "media_id": media.get("id"), "media_url": None}
+    except Exception:
+        return None
+
+
+async def _fetch_media(message: dict) -> bytes:
+    """Download inbound media (provider-agnostic): direct URL, else Meta media id."""
+    media_url = message.get("media_url")
+    if media_url:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.get(media_url)
+            res.raise_for_status()
+            return res.content
+    media_id = message.get("media_id")
+    if media_id:
+        return await download_media(media_id)
+    return b""
+
+
 @app.post("/webhook")
 async def handle_whatsapp_messages(
     request: Request,
@@ -640,34 +690,31 @@ async def handle_whatsapp_messages(
     # Read body for signature verification
     body = await request.body()
 
-    # Reject unverified payloads. Meta signs with X-Hub-Signature-256.
-    if not verify_whatsapp_signature(body, x_hub_signature_256):
+    # Meta signs payloads with X-Hub-Signature-256. Wati/SleekFlow use their own
+    # auth (token + IP allowlist) and do not emit Meta's header, so only enforce
+    # the signature when running against Meta.
+    if whatsapp_provider.PROVIDER == "meta" and not verify_whatsapp_signature(body, x_hub_signature_256):
         raise HTTPException(status_code=403, detail="Invalid signature")
 
     data = json.loads(body.decode('utf-8'))
 
     try:
-        entry = data.get("entry", [{}])[0]
-        changes = entry.get("changes", [{}])[0].get("value", {})
-        messages = changes.get("messages") or []
-
-        if not messages:
+        msg = _normalize_inbound(data)
+        if not msg or not msg.get("sender") or not msg.get("type"):
             return {"status": "ignored", "reason": "no message payload"}
 
-        message = messages[0]
-        sender = message.get("from")
-        message_type = message.get("type")
-
-        if not sender or not message_type:
-            return {"status": "ignored", "reason": "missing sender or type"}
-
+        sender = msg["sender"]
+        message_type = msg["type"]
         current_state = USER_STATES.get(sender, "idle")
+        lang = _language_for_sender(sender)
+        feature = _feature_for_sender(sender)
 
         if message_type == "text":
-            body = (message.get("text", {}) or {}).get("body", "").strip()
-            if body.lower() in {"claim reward", "reward", "claim"}:
+            text = (msg.get("text") or "").strip()
+            if text.lower() in {"claim reward", "reward", "claim"}:
                 dashboard_url = generate_dashboard_url(sender)
-                await send_message(sender, f"Your secure dashboard is ready: {dashboard_url}\n\nOpen it to confirm your reward and continue onboarding.")
+                await send_message(sender, f"Your Value Vault is ready: {dashboard_url}")
+                await send_message(sender, localize(REVERSE_ONBOARDING_FOLLOWUP, lang, feature=feature))
                 USER_STATES[sender] = "claiming_reward"
                 return {"status": "success", "state": USER_STATES[sender]}
 
@@ -679,35 +726,28 @@ async def handle_whatsapp_messages(
             return {"status": "success", "state": "idle"}
 
         if message_type == "interactive":
-            interactive_data = message.get("interactive", {}) or {}
-            button_reply = interactive_data.get("button_reply", {}) or {}
-            btn_id = button_reply.get("id")
-
-            if btn_id == "claim_reward":
+            if msg.get("button_id") == "claim_reward":
                 dashboard_url = generate_dashboard_url(sender)
                 USER_STATES[sender] = "claiming_reward"
-                await send_message(
-                    sender,
-                    f"Reward ready. Open this secure dashboard link to continue: {dashboard_url}"
-                )
+                await send_message(sender, f"Your Value Vault is ready: {dashboard_url}")
+                await send_message(sender, localize(REVERSE_ONBOARDING_FOLLOWUP, lang, feature=feature))
                 return {"status": "success", "state": USER_STATES[sender]}
 
             return {"status": "success", "state": current_state}
 
         if message_type == "image":
-            image_id = (message.get("image", {}) or {}).get("id")
-            if not image_id:
-                return {"status": "ignored", "reason": "missing image id"}
-
             USER_STATES[sender] = "reverse_onboarding"
-            img_bytes = await download_media(image_id)
+            img_bytes = await _fetch_media(msg)
+            if not img_bytes:
+                return {"status": "ignored", "reason": "missing image payload"}
+
             extracted_items = await process_inventory_image(img_bytes, sender)
 
             if not extracted_items:
-                await send_message(sender, "We couldn’t read that image clearly. Please send a sharper photo of the handwritten inventory.")
+                await send_message(sender, "We couldn't read that image clearly. Please send a sharper photo of the handwritten inventory.")
                 return {"status": "success", "state": USER_STATES[sender]}
 
-            summary = "\n".join([f"• {item['item']}: {item['quantity']}" for item in extracted_items])
+            summary = "\n".join([f"- {item['item']}: {item['quantity']}" for item in extracted_items])
             claim_amount = float(os.getenv("REWARD_USDC_AMOUNT", "50"))
             recipient_wallet = os.getenv("PAYMENT_RECIPIENT_WALLET")
             segment = classify_sender(sender)
@@ -716,7 +756,7 @@ async def handle_whatsapp_messages(
             if segment != "Persuadable":
                 payment_status = f"skipped:{segment}"
             elif recipient_wallet:
-                payment_ref = f"claim:{sender}:{image_id}"
+                payment_ref = f"claim:{sender}:{msg.get('media_id') or 'img'}"
 
                 # Idempotency check: prevent duplicate payments on webhook retries
                 if payment_ref in PROCESSED_PAYMENTS:
@@ -741,7 +781,7 @@ async def handle_whatsapp_messages(
             )
             await send_message(
                 sender,
-                f"Successfully parsed your inventory and updated the database:\n\n{summary}\n\n{reward_note}"
+                f"{localize(DONE_MESSAGE, lang)}\n\n{summary}\n\n{reward_note}"
             )
             USER_STATES[sender] = "idle"
             return {"status": "success", "state": USER_STATES[sender]}
