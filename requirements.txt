@@ -4,12 +4,15 @@ python-multipart==0.0.9  # Required for UploadFile / File(...) endpoints
 uvicorn[standard]==0.32.0
 python-dotenv==1.0.1
 httpx==0.27.2
+twilio>=9.3,<10
 
-# Image Processing & OCR
+# Serverless PDF report export
+reportlab==4.4.10
+
+# Image processing used by the serverless PDF renderer. Optional local OCR
+# dependencies live in requirements.local-ocr.txt so they do not inflate the
+# Vercel Function bundle.
 pillow==11.0.0
-pytesseract==0.3.13
-easyocr==1.7.1
-opencv-python-headless==4.10.0.84
 
 # Machine Learning (for uplift_engine.py)
 numpy==1.26.4
@@ -18,4 +21,3 @@ scikit-learn==1.5.1
 # Solana Blockchain
 solders==0.21.0
 solana==0.35.0
-spl-token==0.2.0

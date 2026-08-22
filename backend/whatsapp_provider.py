@@ -45,6 +45,11 @@ WATI_BASE_URL = (
 META_TOKEN = os.getenv("META_WHATSAPP_ACCESS_TOKEN") or os.getenv("WHATSAPP_TOKEN")
 META_PHONE_NUMBER_ID = os.getenv("META_WHATSAPP_PHONE_NUMBER_ID") or os.getenv("PHONE_NUMBER_ID")
 META_GRAPH_VERSION = os.getenv("META_GRAPH_API_VERSION", "v20.0")
+META_MESSAGES_URL = (
+    f"https://graph.facebook.com/{META_GRAPH_VERSION}/{META_PHONE_NUMBER_ID}/messages"
+    if META_PHONE_NUMBER_ID
+    else ""
+)
 
 
 def configured() -> bool:
@@ -64,7 +69,10 @@ async def _post(url: str, headers: dict, payload: dict) -> dict | None:
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(url, headers=headers, json=payload)
         response.raise_for_status()
-        return response.json()
+        try:
+            return response.json()
+        except ValueError:
+            return {"status": "sent", "statusCode": response.status_code}
 
 
 async def _sleekflow_send(payload: dict) -> dict | None:
@@ -75,6 +83,16 @@ async def _sleekflow_send(payload: dict) -> dict | None:
 async def _wati_send(endpoint: str, payload: dict) -> dict | None:
     headers = {"Authorization": f"Bearer {WATI_ACCESS_TOKEN}", "Content-Type": "application/json"}
     return await _post(f"{WATI_BASE_URL}/{endpoint}", headers, payload)
+
+
+async def _meta_send(payload: dict) -> dict | None:
+    if not META_MESSAGES_URL or not META_TOKEN:
+        return None
+    headers = {
+        "Authorization": f"Bearer {META_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    return await _post(META_MESSAGES_URL, headers, payload)
 
 
 async def send_text(to_number: str, text: str) -> dict | None:
@@ -167,4 +185,3 @@ async def send_template(
             },
         },
     })
-

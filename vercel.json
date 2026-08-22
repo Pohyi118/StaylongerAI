@@ -1,0 +1,33 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "npm --prefix frontend ci",
+  "devCommand": "npm --prefix frontend run dev -- --host 127.0.0.1 --port %PORT%",
+  "buildCommand": "npm --prefix frontend run build",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60,
+      "includeFiles": "frontend/public/staylonger-logo.png",
+      "excludeFiles": "{tests/**,docs/**,scripts/**,frontend/node_modules/**,frontend/dist/**,**/__pycache__/**}"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "/api?__staylonger_path=/api/:path*"
+    },
+    {
+      "source": "/webhook",
+      "destination": "/api?__staylonger_path=/webhook"
+    },
+    {
+      "source": "/webhook/:path*",
+      "destination": "/api?__staylonger_path=/webhook/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

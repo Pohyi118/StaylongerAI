@@ -1,0 +1,7 @@
+# Optional local-only OCR stack. The Vercel deployment deliberately omits
+# these packages because EasyOCR downloads large models and is not suitable
+# for an ephemeral serverless filesystem.
+-r requirements.txt
+pytesseract==0.3.13
+easyocr==1.7.1
+opencv-python-headless==4.10.0.84

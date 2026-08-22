@@ -1,8 +1,26 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, Activity, ShieldAlert, Target, Heart, PauseCircle, Trash2, Crown, ChevronRight, TrendingUp, Gift, CreditCard, ArrowRight, Package } from "lucide-react";
-import { AreaChart, Area, ResponsiveContainer } from 'recharts';
+import {
+  ArrowRight,
+  ChevronRight,
+  CreditCard,
+  Crown,
+  Gift,
+  Heart,
+  MessageCircle,
+  Package,
+  PauseCircle,
+  Phone,
+  ShieldAlert,
+  Sparkles,
+  Target,
+  Trash2,
+  TrendingUp,
+} from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
+import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { fetchJson } from "../lib/api";
+import { openWhatsApp } from "../whatsapp";
 
 type DashboardRecord = {
   title: string;
@@ -20,9 +38,29 @@ type DashboardRecord = {
     activityDrop: string;
     affectedUsers: number;
   };
-  vipAccounts: Array<{ name: string; plan: string; revenueAtRisk: string; healthScore: string; status: string }>;
-  segments: Array<{ title: string; description: string; value: number; action: string; theme: string }>;
-  rescues: Array<{ name: string; time: string; reward: string; type: string; status: string; network: string }>;
+  vipAccounts: Array<{
+    name: string;
+    plan: string;
+    revenueAtRisk: string;
+    healthScore: string;
+    status: string;
+    phone?: string;
+  }>;
+  segments: Array<{
+    title: string;
+    description: string;
+    value: number;
+    action: string;
+    theme: string;
+  }>;
+  rescues: Array<{
+    name: string;
+    time: string;
+    reward: string;
+    type: string;
+    status: string;
+    network: string;
+  }>;
   inventory: InventoryRecord[];
 };
 
@@ -43,21 +81,22 @@ const DEFAULT_DASHBOARD: DashboardRecord = {
   totalRevenueProtectedLabel: "RM184,320",
   weekGrowth: "+12% this week",
   roi: "8.4×",
-  executiveBrief: "Churn exposure decreased 12% this week. 9 persuadable accounts were automatically rescued. A coordinated activity drop across 127 SME customers may indicate a competitor campaign.",
+  executiveBrief:
+    "Churn exposure decreased 12% this week. 9 persuadable accounts were automatically rescued. A coordinated activity drop across 127 SME customers may indicate a competitor campaign.",
   metrics: [
     { label: "Accounts Rescued", value: "47", trend: "+4" },
     { label: "MRR at Risk", value: "RM24,500", trend: "-12%" },
-    { label: "Agent Payments", value: "RM450", trend: "Solana/x402" },
+    { label: "Agent Payments", value: "RM450", trend: "Secure settlement" },
     { label: "Health Avg", value: "72/100", trend: "Stable" },
   ],
   chartData: [
-    { name: '1', revenue: 120000 },
-    { name: '5', revenue: 130000 },
-    { name: '10', revenue: 128000 },
-    { name: '15', revenue: 145000 },
-    { name: '20', revenue: 160000 },
-    { name: '25', revenue: 175000 },
-    { name: '30', revenue: 184320 },
+    { name: "1", revenue: 120000 },
+    { name: "5", revenue: 130000 },
+    { name: "10", revenue: 128000 },
+    { name: "15", revenue: 145000 },
+    { name: "20", revenue: 160000 },
+    { name: "25", revenue: 175000 },
+    { name: "30", revenue: 184320 },
   ],
   alert: {
     tag: "Emergency",
@@ -67,22 +106,82 @@ const DEFAULT_DASHBOARD: DashboardRecord = {
     affectedUsers: 2391,
   },
   vipAccounts: [
-    { name: "Acme Corp", plan: "Enterprise", revenueAtRisk: "RM12,460", healthScore: "31 / 100 (87% risk)", status: "Human Alert" },
-    { name: "Nexus Logistics", plan: "Mid-Market", revenueAtRisk: "RM8,200", healthScore: "42 / 100 (71% risk)", status: "Human Alert" },
+    {
+      name: "Acme Corp",
+      plan: "Enterprise",
+      revenueAtRisk: "RM12,460",
+      healthScore: "31 / 100 (87% risk)",
+      status: "Human Alert",
+    },
+    {
+      name: "Nexus Logistics",
+      plan: "Mid-Market",
+      revenueAtRisk: "RM8,200",
+      healthScore: "42 / 100 (71% risk)",
+      status: "Human Alert",
+    },
   ],
   segments: [
-    { title: "Persuadables", description: "High risk, can be saved", value: 45, action: "AI Action: Invest Rewards", theme: "pink" },
-    { title: "Sure Things", description: "Loyal & engaged", value: 1204, action: "AI Action: No Discount", theme: "emerald" },
-    { title: "Inactive", description: "Low activity, monitor quietly", value: 89, action: "AI Action: Monitor", theme: "amber" },
-    { title: "Lost Causes", description: "Unlikely to stay", value: 12, action: "AI Action: Ignore", theme: "slate" },
+    {
+      title: "Persuadables",
+      description: "High risk, can be saved",
+      value: 45,
+      action: "AI Action: Invest Rewards",
+      theme: "pink",
+    },
+    {
+      title: "Sure Things",
+      description: "Loyal and engaged",
+      value: 1204,
+      action: "AI Action: No Discount",
+      theme: "emerald",
+    },
+    {
+      title: "Sleeping Dogs",
+      description: "Dormant but still paying",
+      value: 89,
+      action: "AI Action: Monitor",
+      theme: "amber",
+    },
+    {
+      title: "Lost Causes",
+      description: "Unlikely to stay",
+      value: 12,
+      action: "AI Action: Ignore",
+      theme: "slate",
+    },
   ],
   rescues: [
-    { name: "Lumina Tech", time: "12m ago", reward: "GrabFood RM50", type: "Value Vault", status: "Claimed", network: "x402/Solana" },
-    { name: "ScaleForge", time: "45m ago", reward: "Pause Subscription", type: "Billing", status: "Executed", network: "Internal" },
-    { name: "OrbitWorks", time: "2h ago", reward: "Shopee RM30", type: "Value Vault", status: "Claimed", network: "x402/Solana" },
+    {
+      name: "Lumina Tech",
+      time: "12m ago",
+      reward: "GrabFood RM50",
+      type: "Value Vault",
+      status: "Claimed",
+      network: "x402/Solana",
+    },
+    {
+      name: "ScaleForge",
+      time: "45m ago",
+      reward: "Pause Subscription",
+      type: "Billing",
+      status: "Executed",
+      network: "Internal",
+    },
+    {
+      name: "OrbitWorks",
+      time: "2h ago",
+      reward: "Shopee RM30",
+      type: "Value Vault",
+      status: "Claimed",
+      network: "x402/Solana",
+    },
   ],
   inventory: [],
 };
+
+const PANEL =
+  "rounded-[22px] border border-slate-200/90 bg-white shadow-[0_16px_42px_-32px_rgba(15,23,42,0.32)]";
 
 function formatInventoryTime(value: string): string {
   const receivedAt = new Date(value);
@@ -94,25 +193,154 @@ function formatInventoryTime(value: string): string {
   });
 }
 
+function formatAnimatedValue(prefix: string, amount: number, suffix: string, decimals: number): string {
+  const formatted = Math.abs(amount).toLocaleString(undefined, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+  return `${prefix}${amount < 0 ? "-" : ""}${formatted}${suffix}`;
+}
+
+function displayFriendlySettlement(value: string): string {
+  return /(solana|x402)/i.test(value) ? "Secure settlement" : value;
+}
+
+function displaySegmentTitle(value: string): string {
+  return value.trim().toLowerCase() === "inactive" ? "Sleeping Dogs" : value;
+}
+
+function getRiskPercent(healthScore: string): number {
+  const risk = healthScore.match(/\((\d+)%\s*risk\)/i);
+  if (!risk) return 70;
+  return Math.min(Math.max(Number(risk[1]), 0), 100);
+}
+
+function AnimatedValue({
+  value,
+  className,
+  duration = 850,
+}: {
+  value: string | number;
+  className?: string;
+  duration?: number;
+}) {
+  const reduceMotion = useReducedMotion();
+  const label = String(value);
+  const [displayValue, setDisplayValue] = useState(label);
+
+  useEffect(() => {
+    const match = label.match(/^([^\d-]*)(-?[\d,]+(?:\.\d+)?)(.*)$/);
+    if (!match || reduceMotion) {
+      setDisplayValue(label);
+      return;
+    }
+
+    const [, prefix, rawNumber, suffix] = match;
+    const target = Number(rawNumber.replace(/,/g, ""));
+    if (!Number.isFinite(target)) {
+      setDisplayValue(label);
+      return;
+    }
+
+    const decimals = rawNumber.split(".")[1]?.length ?? 0;
+    const startTime = performance.now();
+    let frame = 0;
+
+    setDisplayValue(formatAnimatedValue(prefix, 0, suffix, decimals));
+
+    const tick = (now: number) => {
+      const progress = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplayValue(formatAnimatedValue(prefix, target * eased, suffix, decimals));
+
+      if (progress < 1) frame = window.requestAnimationFrame(tick);
+    };
+
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [duration, label, reduceMotion]);
+
+  return (
+    <span className={className} aria-label={label}>
+      {displayValue}
+    </span>
+  );
+}
+
+function SectionHeading({
+  id,
+  eyebrow,
+  title,
+  description,
+  action,
+  onAction,
+}: {
+  id?: string;
+  eyebrow: string;
+  title: string;
+  description?: string;
+  action?: string;
+  onAction?: () => void;
+}) {
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3 md:mb-5">
+      <div>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-teal-700">{eyebrow}</div>
+        <h2 id={id} className="mt-1 text-xl font-bold tracking-[-0.035em] text-slate-950 sm:text-2xl">{title}</h2>
+        {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
+      </div>
+      {action && onAction ? (
+        <motion.button
+          type="button"
+          onClick={onAction}
+          className="flex items-center gap-1 text-sm font-semibold text-teal-700"
+          whileHover={reduceMotion ? undefined : { x: 2 }}
+          whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+        >
+          {action} <ChevronRight className="h-4 w-4" />
+        </motion.button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [dashboard, setDashboard] = useState<DashboardRecord>(DEFAULT_DASHBOARD);
   const navigate = useNavigate();
+  const reduceMotion = useReducedMotion();
   const recentInventory = [...dashboard.inventory]
     .sort((left, right) => Date.parse(right.receivedAt) - Date.parse(left.receivedAt))
     .slice(0, 3);
+  const primaryVip = dashboard.vipAccounts[0];
+  const persuadable = dashboard.segments.find((segment) => displaySegmentTitle(segment.title) === "Persuadables");
+  const vaultActivity = dashboard.rescues.find((rescue) => rescue.type === "Value Vault");
 
   const handleAction = (route: string) => {
     navigate(route);
   };
 
   const handleNotifyExecTeam = () => {
-    const message = encodeURIComponent(
-      "Executive Alert: churn risk is rising in the SME segment. Activity has dropped by 37% and 2,391 users are affected. Please review the retention plan immediately."
-    );
+    openWhatsApp({
+      phone: import.meta.env.VITE_EXEC_WHATSAPP_NUMBER,
+      message:
+        "Executive Alert: churn risk is rising in the SME segment. Activity has dropped by 37% and 2,391 users are affected. Please review the retention plan immediately.",
+    });
+  };
 
-    if (typeof window !== "undefined") {
-      window.open(`https://wa.me/?text=${message}`, "_blank", "noopener,noreferrer");
-    }
+  const handleAssignCsm = (account: DashboardRecord["vipAccounts"][number]) => {
+    openWhatsApp({
+      phone: import.meta.env.VITE_CSM_WHATSAPP_NUMBER,
+      message: `CSM assignment request\n\nAccount: ${account.name}\nPlan: ${account.plan}\nRevenue at risk: ${account.revenueAtRisk}\nHealth: ${account.healthScore}\n\nPlease assign an owner and confirm the follow-up time.`,
+    });
+  };
+
+  const handleCallNow = (account: DashboardRecord["vipAccounts"][number]) => {
+    openWhatsApp({
+      phone: account.phone || import.meta.env.VITE_CUSTOMER_WHATSAPP_NUMBER,
+      message: `Hi ${account.name} team, this is Acme Admin. We noticed a recent drop in account activity and would like to help. Is now a good time for a quick retention check-in?`,
+    });
   };
 
   useEffect(() => {
@@ -139,9 +367,7 @@ export default function Dashboard() {
       } catch {
         // Keep the last successful payload (or the built-in demo data) available.
       } finally {
-        if (isMounted) {
-          pollTimer = setTimeout(loadDashboard, 5000);
-        }
+        if (isMounted) pollTimer = setTimeout(loadDashboard, 5000);
       }
     };
 
@@ -155,291 +381,553 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="flex flex-col gap-6 w-full animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-2">
+    <motion.div
+      className="flex w-full flex-col gap-8 pb-6"
+      initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.38, ease: "easeOut" }}
+    >
+      <motion.header
+        className="flex flex-col justify-between gap-4 border-b border-slate-200/80 pb-6 md:flex-row md:items-end"
+        initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: reduceMotion ? 0 : 0.36, ease: "easeOut" }}
+      >
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">{dashboard.title}</h1>
-          <div className="flex items-center gap-2 mt-1 text-sm font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full w-fit border border-emerald-100">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            {dashboard.status}
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-teal-700">
+            <span className="h-px w-6 bg-teal-600/45" /> Retention intelligence
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="text-right hidden sm:block text-sm">
-            <div className="text-foreground font-medium">Acme Admin</div>
-            <div className="text-muted-foreground">Admin Workspace</div>
-          </div>
-          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-brand/20 to-pink-500/20 border border-brand/20 flex items-center justify-center text-brand font-semibold shadow-sm">
-            A
-          </div>
-        </div>
-      </header>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 glass-card p-6 md:p-8 relative overflow-hidden group">
-          <div className="absolute inset-0 bg-gradient-to-br from-brand/10 to-transparent opacity-50 z-0"></div>
-
-          <div className="relative z-10">
-            <h2 className="text-sm font-semibold text-muted-foreground tracking-wide uppercase mb-1">Total Revenue Protected</h2>
-            <div className="text-4xl md:text-6xl font-bold tracking-tighter text-foreground tabular-nums">
-              {dashboard.totalRevenueProtectedLabel}
-            </div>
-            <div className="flex items-center gap-2 mt-4 text-sm">
-              <div className="flex items-center text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded text-xs border border-emerald-100">
-                <TrendingUp className="w-3 h-3 mr-1" />
-                {dashboard.weekGrowth}
-              </div>
-              <span className="text-muted-foreground">Intervention ROI: <strong className="text-foreground">{dashboard.roi}</strong></span>
-            </div>
-          </div>
-
-          <div className="h-[120px] md:h-[160px] w-full mt-6 z-10 relative">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dashboard.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--brand)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--brand)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <Area type="monotone" dataKey="revenue" stroke="var(--brand)" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="glass-card p-6 md:p-8 relative flex flex-col">
-          <div className="absolute top-0 right-0 p-4 opacity-50">
-            <Sparkles className="text-brand w-6 h-6" />
-          </div>
-          <h3 className="text-lg font-bold mb-4 flex items-center gap-2">AI Executive Brief</h3>
-          <p className="text-foreground/80 leading-relaxed text-sm flex-1">
-            {dashboard.executiveBrief}
+          <h1 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-slate-950 sm:text-4xl">{dashboard.title}</h1>
+          <p className="mt-2 max-w-2xl text-sm text-slate-500">
+            See who is at risk, why it matters, and the next best AI-led action.
           </p>
-          <button type="button" onClick={() => handleAction("/reports")} className="mt-6 flex items-center justify-center w-full py-2.5 rounded-xl bg-foreground text-white font-medium hover:bg-foreground/90 transition-colors shadow-md text-sm">
-            View Analysis <ArrowRight className="w-4 h-4 ml-2" />
-          </button>
         </div>
-      </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {dashboard.metrics.map((metric, i) => (
-          <div key={i} className="glass-card p-4 flex flex-col justify-center">
-            <div className="text-xs text-muted-foreground font-medium mb-1">{metric.label}</div>
-            <div className="text-2xl font-bold tabular-nums">{metric.value}</div>
-            <div className="text-xs text-brand font-medium mt-1">{metric.trend}</div>
-          </div>
-        ))}
-      </div>
+        <div
+          className="flex w-fit items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
+          aria-live="polite"
+        >
+          <motion.span
+            className="relative flex h-2 w-2"
+            animate={reduceMotion ? undefined : { scale: [1, 1.45, 1], opacity: [0.95, 0.42, 0.95] }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <span className="absolute inset-0 rounded-full bg-emerald-400/60" />
+            <span className="relative m-auto h-2 w-2 rounded-full bg-emerald-600" />
+          </motion.span>
+          {dashboard.status}
+        </div>
+      </motion.header>
 
-      {dashboard.inventory.length > 0 && (
-        <div className="glass-card p-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center">
-                <Package className="w-5 h-5 text-brand" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold">Recent WhatsApp Inventory</h3>
-                <p className="text-sm text-muted-foreground">Structured items extracted from customer uploads.</p>
-              </div>
+      <motion.section
+        aria-labelledby="competitor-alert-title"
+        className={`${PANEL} relative overflow-hidden border-rose-200/90 p-5 sm:p-6 lg:p-7`}
+        initial={reduceMotion ? false : { opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: reduceMotion ? 0 : 0.42, delay: reduceMotion ? 0 : 0.05, ease: "easeOut" }}
+      >
+        <div className="absolute inset-y-0 left-0 w-1 bg-rose-500" />
+        <div className="absolute right-[-26px] top-[-26px] h-36 w-36 rounded-full bg-rose-100/70 blur-2xl" />
+        <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.9fr)] lg:items-end">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.13em] text-white">
+                <ShieldAlert className="h-3.5 w-3.5" /> Competitor alert
+              </span>
+              <span className="text-xs font-semibold text-rose-700">{dashboard.alert.tag}</span>
             </div>
-            <span className="text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1.5 rounded-full w-fit">
-              {dashboard.inventory.length} processed
-            </span>
+            <h2 id="competitor-alert-title" className="mt-4 max-w-3xl text-2xl font-bold tracking-[-0.04em] text-slate-950 sm:text-3xl">
+              {dashboard.alert.title}
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{dashboard.alert.message}</p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <motion.button
+                type="button"
+                onClick={() => handleAction("/alerts")}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_10px_24px_-16px_rgba(15,23,42,0.9)]"
+                whileHover={reduceMotion ? undefined : { y: -2 }}
+                whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+              >
+                Investigate alert <ArrowRight className="h-4 w-4" />
+              </motion.button>
+              <motion.button
+                type="button"
+                onClick={() => handleAction("/customers")}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"
+                whileHover={reduceMotion ? undefined : { y: -2, borderColor: "rgba(13, 148, 136, 0.45)" }}
+                whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+              >
+                View customers
+              </motion.button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-            {recentInventory.map((record) => (
-              <div key={record.id} className="bg-white/50 border border-border rounded-2xl p-4">
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div>
-                    <div className="font-bold text-sm">{record.sender}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{formatInventoryTime(record.receivedAt)}</div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2">
+            <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-3.5">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.11em] text-slate-500">Activity drop</div>
+              <AnimatedValue value={dashboard.alert.activityDrop} className="mt-1 block text-2xl font-bold tracking-[-0.04em] text-rose-700" />
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white/85 p-3.5">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.11em] text-slate-500">Affected users</div>
+              <AnimatedValue value={dashboard.alert.affectedUsers} className="mt-1 block text-2xl font-bold tracking-[-0.04em] text-slate-950" />
+            </div>
+            <motion.button
+              type="button"
+              onClick={handleNotifyExecTeam}
+              className="col-span-2 flex min-h-[70px] items-center justify-between rounded-2xl border border-teal-200 bg-teal-50/80 p-3.5 text-left text-teal-800 sm:col-span-1 lg:col-span-2"
+              whileHover={reduceMotion ? undefined : { y: -2 }}
+              whileTap={reduceMotion ? undefined : { scale: 0.985 }}
+            >
+              <span>
+                <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-teal-700">Escalate now</span>
+                <span className="mt-1 block text-sm font-semibold">Notify executive team</span>
+              </span>
+              <MessageCircle className="h-5 w-5" />
+            </motion.button>
+          </div>
+        </div>
+      </motion.section>
+
+      <section aria-labelledby="attention-title">
+        <SectionHeading
+          id="attention-title"
+          eyebrow="AI action center"
+          title="What needs attention now"
+          description="Prioritized actions chosen from live retention signals."
+          action="View all alerts"
+          onAction={() => handleAction("/alerts")}
+        />
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <motion.article
+            className={`${PANEL} border-rose-100 p-4`}
+            initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.36, delay: reduceMotion ? 0 : 0.1 }}
+            whileHover={reduceMotion ? undefined : { y: -3 }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="rounded-lg bg-rose-50 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-rose-700">High priority</span>
+              <ShieldAlert className="h-4 w-4 text-rose-600" />
+            </div>
+            <h3 className="mt-4 font-bold tracking-[-0.02em] text-slate-950">Competitor signal detected</h3>
+            <p className="mt-1 text-sm leading-5 text-slate-500">{dashboard.alert.affectedUsers.toLocaleString()} users require review.</p>
+            <button type="button" onClick={() => handleAction("/alerts")} className="mt-4 text-sm font-semibold text-teal-700">
+              Review signal
+            </button>
+          </motion.article>
+
+          <motion.article
+            className={`${PANEL} p-4`}
+            initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.36, delay: reduceMotion ? 0 : 0.15 }}
+            whileHover={reduceMotion ? undefined : { y: -3 }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-amber-700">VIP risk</span>
+              <Crown className="h-4 w-4 text-amber-600" />
+            </div>
+            <h3 className="mt-4 font-bold tracking-[-0.02em] text-slate-950">{primaryVip?.name ?? "VIP account"}</h3>
+            <p className="mt-1 text-sm leading-5 text-slate-500">{primaryVip ? `${primaryVip.revenueAtRisk} at risk · ${primaryVip.plan}` : "Review the highest-value account."}</p>
+            <button
+              type="button"
+              onClick={() => (primaryVip ? handleAssignCsm(primaryVip) : handleAction("/customers"))}
+              className="mt-4 text-sm font-semibold text-teal-700"
+            >
+              {primaryVip ? "Assign CSM" : "Review account"}
+            </button>
+          </motion.article>
+
+          <motion.article
+            className={`${PANEL} p-4`}
+            initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.36, delay: reduceMotion ? 0 : 0.2 }}
+            whileHover={reduceMotion ? undefined : { y: -3 }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-700">Intervention ready</span>
+              <Target className="h-4 w-4 text-teal-600" />
+            </div>
+            <h3 className="mt-4 font-bold tracking-[-0.02em] text-slate-950">Persuadables are ready</h3>
+            <p className="mt-1 text-sm leading-5 text-slate-500">
+              {persuadable ? `${persuadable.value.toLocaleString()} accounts are retainable now.` : "Review accounts ready for rescue."}
+            </p>
+            <button type="button" onClick={() => handleAction("/customers")} className="mt-4 text-sm font-semibold text-teal-700">
+              Launch rescue
+            </button>
+          </motion.article>
+
+          <motion.article
+            className={`${PANEL} p-4`}
+            initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.36, delay: reduceMotion ? 0 : 0.25 }}
+            whileHover={reduceMotion ? undefined : { y: -3 }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-700">Value Vault</span>
+              <Gift className="h-4 w-4 text-teal-600" />
+            </div>
+            <h3 className="mt-4 font-bold tracking-[-0.02em] text-slate-950">Reward intervention</h3>
+            <p className="mt-1 text-sm leading-5 text-slate-500">
+              {vaultActivity ? `${vaultActivity.reward} is ready for a recovery flow.` : "Review available customer value."}
+            </p>
+            <button type="button" onClick={() => handleAction("/rewards")} className="mt-4 text-sm font-semibold text-teal-700">
+              Open Value Vault
+            </button>
+          </motion.article>
+        </div>
+      </section>
+
+      <section aria-labelledby="business-impact-title">
+        <SectionHeading
+          id="business-impact-title"
+          eyebrow="Business impact"
+          title="Revenue protection at a glance"
+          description="The financial outcome of autonomous retention work."
+          action="Open analytics"
+          onAction={() => handleAction("/reports")}
+        />
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.75fr)]">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {dashboard.metrics.map((metric, index) => {
+              const isRiskImproving = /risk/i.test(metric.label) && metric.trend.startsWith("-");
+              const trendClass = isRiskImproving || metric.label === "Accounts Rescued" ? "text-emerald-700" : "text-slate-500";
+              return (
+                <motion.article
+                  key={metric.label}
+                  className={`${PANEL} min-w-0 p-4`}
+                  initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.34, delay: reduceMotion ? 0 : 0.12 + index * 0.05 }}
+                  whileHover={reduceMotion ? undefined : { y: -3 }}
+                >
+                  <div className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{metric.label}</div>
+                  <AnimatedValue value={metric.value} className="mt-2 block truncate text-xl font-bold tracking-[-0.04em] text-slate-950 tabular-nums sm:text-2xl" />
+                  <div className={`mt-2 flex items-center gap-1 text-xs font-semibold ${trendClass}`}>
+                    {metric.label === "Accounts Rescued" || isRiskImproving ? <TrendingUp className="h-3.5 w-3.5" /> : null}
+                    {displayFriendlySettlement(metric.trend)}
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wide bg-brand/10 text-brand px-2 py-1 rounded">
-                    {record.processor}
+                </motion.article>
+              );
+            })}
+          </div>
+
+          <motion.article
+            className={`${PANEL} min-h-[180px] p-4 sm:p-5`}
+            initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.38, delay: reduceMotion ? 0 : 0.25 }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Revenue protected</div>
+                <AnimatedValue value={dashboard.totalRevenueProtectedLabel} className="mt-1 block text-2xl font-bold tracking-[-0.05em] text-slate-950 tabular-nums" duration={1050} />
+              </div>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{dashboard.weekGrowth}</span>
+            </div>
+            <div className="mt-4 h-20" aria-label="Thirty-day revenue protected trend">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={dashboard.chartData} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="dashboard-protected-revenue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#0f9488" stopOpacity={0.22} />
+                      <stop offset="100%" stopColor="#0f9488" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <Area
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="#0f9488"
+                    strokeWidth={2.5}
+                    fill="url(#dashboard-protected-revenue)"
+                    isAnimationActive={!reduceMotion}
+                    animationDuration={700}
+                    animationEasing="ease-out"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+              <span>30-day trend</span>
+              <span>Intervention ROI: <strong className="font-semibold text-slate-800">{dashboard.roi}</strong></span>
+            </div>
+          </motion.article>
+        </div>
+      </section>
+
+      <section aria-labelledby="customer-risk-title">
+        <SectionHeading
+          id="customer-risk-title"
+          eyebrow="Customer risk"
+          title="High-value accounts requiring a human decision"
+          description="AI has surfaced the next accounts where timely outreach can protect revenue."
+          action="View all customers"
+          onAction={() => handleAction("/customers")}
+        />
+        <div className="grid gap-4 lg:grid-cols-2">
+          {dashboard.vipAccounts.map((account, index) => {
+            const riskPercent = getRiskPercent(account.healthScore);
+            return (
+              <motion.article
+                key={account.name}
+                className={`${PANEL} overflow-hidden p-5`}
+                initial={reduceMotion ? false : { opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: reduceMotion ? 0 : 0.38, delay: reduceMotion ? 0 : 0.12 + index * 0.07 }}
+                whileHover={reduceMotion ? undefined : { y: -3, boxShadow: "0 20px 42px -30px rgba(15, 23, 42, 0.34)" }}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-sm font-bold text-white">
+                      {account.name.slice(0, 1)}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="truncate text-lg font-bold tracking-[-0.025em] text-slate-950">{account.name}</h3>
+                      <p className="mt-0.5 text-sm text-slate-500">{account.plan}</p>
+                    </div>
+                  </div>
+                  <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-rose-700">
+                    {account.status}
                   </span>
                 </div>
 
-                <div className="space-y-1.5">
-                  {record.items.slice(0, 3).map((item, index) => (
-                    <div key={`${record.id}-${item.item}-${index}`} className="flex items-center justify-between gap-3 text-sm">
-                      <span className="text-foreground truncate">{item.item}</span>
-                      <span className="font-semibold text-muted-foreground shrink-0">× {item.quantity}</span>
-                    </div>
-                  ))}
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Revenue at risk</div>
+                    <div className="mt-1 text-lg font-bold tracking-[-0.025em] text-slate-950">{account.revenueAtRisk}</div>
+                  </div>
+                  <div className="rounded-xl bg-rose-50/70 p-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Health score</div>
+                    <div className="mt-1 text-lg font-bold tracking-[-0.025em] text-rose-700">{account.healthScore}</div>
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 mt-4 pt-3 border-t border-border text-xs text-muted-foreground">
-                  <span>{record.itemCount} items</span>
-                  <span className="capitalize">Reward: {record.paymentStatus.replace(/_/g, " ")}</span>
+                <div className="mt-4">
+                  <div className="mb-2 flex items-center justify-between text-xs font-semibold">
+                    <span className="text-slate-500">Churn risk</span>
+                    <span className="text-rose-700">{riskPercent}% elevated</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-rose-100">
+                    <motion.div
+                      className="h-full rounded-full bg-rose-500"
+                      initial={{ scaleX: reduceMotion ? riskPercent / 100 : 0 }}
+                      animate={{ scaleX: riskPercent / 100 }}
+                      transition={{ duration: reduceMotion ? 0 : 0.7, delay: reduceMotion ? 0 : 0.28 + index * 0.08, ease: "easeOut" }}
+                      style={{ transformOrigin: "left" }}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      <div className="glass-card p-6 border-l-4 border-l-[#FF5A5F] relative overflow-hidden bg-gradient-to-r from-[#FF5A5F]/5 to-transparent">
-        <div className="absolute top-0 right-0 p-4 opacity-20">
-          <Activity className="text-[#FF5A5F] w-24 h-24 -mt-4 -mr-4" />
-        </div>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="bg-[#FF5A5F] text-white text-[10px] font-bold px-2 py-0.5 rounded tracking-wider uppercase flex items-center gap-1 shadow-sm">
-                <ShieldAlert className="w-3 h-3" /> {dashboard.alert.tag}
-              </span>
-              <span className="text-sm font-semibold text-[#FF5A5F]">Competitor Alert</span>
-            </div>
-            <h3 className="text-xl font-bold text-foreground mb-1">{dashboard.alert.title}</h3>
-            <p className="text-sm text-muted-foreground">{dashboard.alert.message}</p>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <div>
-              <div className="text-xs text-muted-foreground">Activity Drop</div>
-              <div className="text-xl font-bold text-[#FF5A5F]">{dashboard.alert.activityDrop}</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">Affected Users</div>
-              <div className="text-xl font-bold">{dashboard.alert.affectedUsers.toLocaleString()}</div>
-            </div>
-            <button type="button" onClick={handleNotifyExecTeam} className="bg-white border border-[#FF5A5F]/20 text-[#FF5A5F] hover:bg-[#FF5A5F]/5 font-medium px-4 py-2 rounded-xl shadow-sm text-sm transition-colors whitespace-nowrap">
-              Notify Exec Team
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 mb-2 flex items-center justify-between">
-        <h2 className="text-xl font-bold">The 90/10 Retention Model</h2>
-        <span className="text-sm font-medium text-muted-foreground">Operating framework</span>
-      </div>
-
-      <div className="glass-card p-6 border border-brand/20">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center">
-              <Crown className="w-5 h-5 text-brand" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold">Top 10% VIPs</h3>
-              <p className="text-sm text-muted-foreground">High-value accounts • <span className="text-[#FF5A5F] font-medium">Human Alert</span></p>
-            </div>
-          </div>
-          <button type="button" onClick={() => handleAction("/customers")} className="text-sm font-medium text-brand flex items-center hover:underline">
-            View All <ChevronRight className="w-4 h-4 ml-1" />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {dashboard.vipAccounts.map((account) => (
-            <div key={account.name} className="bg-white/50 border border-border p-4 rounded-2xl shadow-sm flex flex-col gap-4 hover:shadow-md transition-shadow cursor-pointer">
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-bold text-lg">{account.name}</div>
-                  <div className="text-xs text-muted-foreground">{account.plan}</div>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <motion.button
+                    type="button"
+                    onClick={() => handleAssignCsm(account)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-slate-950 px-3.5 py-2.5 text-sm font-semibold text-white"
+                    whileHover={reduceMotion ? undefined : { y: -2 }}
+                    whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+                  >
+                    <MessageCircle className="h-3.5 w-3.5" /> Assign CSM
+                  </motion.button>
+                  <motion.button
+                    type="button"
+                    onClick={() => handleCallNow(account)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700"
+                    whileHover={reduceMotion ? undefined : { y: -2, borderColor: "rgba(13, 148, 136, 0.48)" }}
+                    whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+                  >
+                    <Phone className="h-3.5 w-3.5 text-teal-700" /> Call now
+                  </motion.button>
                 </div>
-                <div className="bg-[#FF5A5F]/10 text-[#FF5A5F] px-2 py-1 rounded text-xs font-bold border border-[#FF5A5F]/20">
-                  HUMAN DECISION REQUIRED
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="bg-black/5 p-2 rounded-lg">
-                  <div className="text-xs text-muted-foreground mb-0.5">Revenue at Risk</div>
-                  <div className="font-bold">{account.revenueAtRisk}</div>
-                </div>
-                <div className="bg-black/5 p-2 rounded-lg">
-                  <div className="text-xs text-muted-foreground mb-0.5">Health Score</div>
-                  <div className="font-bold text-[#FF5A5F]">{account.healthScore}</div>
-                </div>
-              </div>
-
-              <div className="flex gap-2 mt-2">
-                <button type="button" onClick={() => handleAction("/customers")} className="flex-1 bg-foreground text-white rounded-lg py-2 text-sm font-medium hover:bg-foreground/90 transition-colors">Assign CSM</button>
-                <button type="button" onClick={() => handleAction("/alerts")} className="flex-1 bg-white border border-border text-foreground rounded-lg py-2 text-sm font-medium hover:bg-gray-50 transition-colors">Call Now</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="glass-card p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-gray-600" />
-          </div>
-          <div>
-            <h3 className="text-lg font-bold">Bottom 90% SMEs</h3>
-            <p className="text-sm text-muted-foreground">AI-handled automatically • <span className="text-emerald-600 font-medium">Auto Rescue Enabled</span></p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {dashboard.segments.map((segment) => {
-            const themeStyles = {
-              pink: { card: "from-pink-50 to-white border-pink-100", icon: "bg-pink-100 text-pink-500", value: "text-pink-600", badge: "text-white bg-pink-500" },
-              emerald: { card: "from-emerald-50 to-white border-emerald-100", icon: "bg-emerald-100 text-emerald-600", value: "text-emerald-600", badge: "text-emerald-700 bg-emerald-100 border-emerald-200" },
-              amber: { card: "from-amber-50 to-white border-amber-100", icon: "bg-amber-100 text-amber-600", value: "text-amber-600", badge: "text-amber-700 bg-amber-100 border-amber-200" },
-              slate: { card: "from-slate-50 to-white border-slate-200", icon: "bg-slate-200 text-slate-600", value: "text-slate-600", badge: "text-slate-700 bg-slate-200 border-slate-300" },
-            };
-
-            const currentTheme = themeStyles[segment.theme as keyof typeof themeStyles] ?? themeStyles.pink;
-            const Icon = segment.title === "Persuadables" ? Target : segment.title === "Sure Things" ? Heart : segment.title === "Inactive" ? PauseCircle : Trash2;
-
-            return (
-              <div key={segment.title} className={`bg-gradient-to-br ${currentTheme.card} border p-4 rounded-2xl shadow-sm relative overflow-hidden group hover:-translate-y-1 transition-transform cursor-pointer`}>
-                <div className="absolute right-0 bottom-0 p-4 opacity-10 transform group-hover:scale-110 transition-transform">
-                  <Icon className={`w-16 h-16 ${currentTheme.icon}`} />
-                </div>
-                <div className={`w-8 h-8 rounded-full ${currentTheme.icon} flex items-center justify-center mb-3`}>
-                  <Icon className="w-4 h-4" />
-                </div>
-                <div className="font-bold text-lg text-foreground mb-1">{segment.title}</div>
-                <div className="text-xs text-muted-foreground mb-3">{segment.description}</div>
-                <div className={`text-2xl font-bold ${currentTheme.value} tabular-nums mb-3`}>{segment.value}</div>
-                <div className={`text-xs font-bold rounded py-1 px-2 inline-block border ${currentTheme.badge}`}>{segment.action}</div>
-              </div>
+              </motion.article>
             );
           })}
         </div>
-      </div>
+      </section>
 
-      <div className="glass-card p-0 overflow-hidden mt-2">
-        <div className="p-6 border-b border-border flex justify-between items-center bg-white/40">
-          <h3 className="text-lg font-bold">Recent Autonomous Rescues</h3>
-          <button type="button" onClick={() => handleAction("/alerts")} className="text-sm font-medium text-brand hover:underline">View Log</button>
-        </div>
-        <div className="divide-y divide-border">
-          {dashboard.rescues.map((rescue) => (
-            <div key={`${rescue.name}-${rescue.time}`} className="p-4 md:px-6 flex items-center justify-between hover:bg-white/60 transition-colors cursor-pointer group">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-brand/10 flex items-center justify-center group-hover:scale-105 transition-transform">
-                  {rescue.type === 'Value Vault' ? <Gift className="w-4 h-4 text-brand" /> : <CreditCard className="w-4 h-4 text-brand" />}
+      <section aria-labelledby="triage-title">
+        <SectionHeading
+          id="triage-title"
+          eyebrow="AI triage"
+          title="Know which customers are worth saving"
+          description="A clear, explainable classification system keeps interventions focused."
+          action="Open customer intelligence"
+          onAction={() => handleAction("/customers")}
+        />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {dashboard.segments.map((segment, index) => {
+            const title = displaySegmentTitle(segment.title);
+            const Icon = title === "Persuadables" ? Target : title === "Sure Things" ? Heart : title === "Sleeping Dogs" ? PauseCircle : Trash2;
+            const tone =
+              title === "Persuadables"
+                ? { surface: "bg-amber-50", icon: "bg-amber-100 text-amber-700", value: "text-amber-800" }
+                : title === "Sure Things"
+                  ? { surface: "bg-emerald-50", icon: "bg-emerald-100 text-emerald-700", value: "text-emerald-800" }
+                  : title === "Sleeping Dogs"
+                    ? { surface: "bg-slate-100", icon: "bg-slate-200 text-slate-700", value: "text-slate-800" }
+                    : { surface: "bg-rose-50", icon: "bg-rose-100 text-rose-700", value: "text-rose-800" };
+
+            return (
+              <motion.article
+                key={`${segment.title}-${index}`}
+                className={`${PANEL} p-4`}
+                initial={reduceMotion ? false : { opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: reduceMotion ? 0 : 0.36, delay: reduceMotion ? 0 : 0.1 + index * 0.055 }}
+                whileHover={reduceMotion ? undefined : { y: -3 }}
+                whileTap={reduceMotion ? undefined : { scale: 0.995 }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone.icon}`}>
+                    <Icon className="h-4.5 w-4.5" />
+                  </div>
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${tone.surface} ${tone.value}`}>
+                    AI classified
+                  </span>
                 </div>
-                <div>
-                  <div className="font-bold">{rescue.name}</div>
-                  <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                <h3 className="mt-4 text-lg font-bold tracking-[-0.025em] text-slate-950">{title}</h3>
+                <p className="mt-1 min-h-10 text-sm leading-5 text-slate-500">{segment.description}</p>
+                <AnimatedValue value={segment.value} className={`mt-4 block text-3xl font-bold tracking-[-0.05em] tabular-nums ${tone.value}`} />
+                <div className="mt-2 text-xs font-semibold text-slate-500">{segment.action}</div>
+              </motion.article>
+            );
+          })}
+        </div>
+      </section>
+
+      {dashboard.inventory.length > 0 ? (
+        <motion.section
+          aria-labelledby="inventory-title"
+          className={`${PANEL} p-5 sm:p-6`}
+          initial={reduceMotion ? false : { opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: reduceMotion ? 0 : 0.38, delay: reduceMotion ? 0 : 0.14 }}
+        >
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+                <Package className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 id="inventory-title" className="font-bold tracking-[-0.025em] text-slate-950">Recent WhatsApp inventory</h2>
+                <p className="mt-0.5 text-sm text-slate-500">Structured items extracted from customer uploads.</p>
+              </div>
+            </div>
+            <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">{dashboard.inventory.length} processed</span>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-3">
+            {recentInventory.map((record, index) => (
+              <motion.article
+                key={record.id}
+                className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"
+                initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: reduceMotion ? 0 : 0.32, delay: reduceMotion ? 0 : 0.18 + index * 0.05 }}
+                whileHover={reduceMotion ? undefined : { y: -2 }}
+              >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-bold text-slate-900">{record.sender}</div>
+                    <div className="mt-0.5 text-xs text-slate-500">{formatInventoryTime(record.receivedAt)}</div>
+                  </div>
+                  <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-teal-700">{record.processor}</span>
+                </div>
+                <div className="space-y-1.5">
+                  {record.items.slice(0, 3).map((item, itemIndex) => (
+                    <div key={`${record.id}-${item.item}-${itemIndex}`} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="truncate text-slate-700">{item.item}</span>
+                      <span className="shrink-0 font-semibold text-slate-500">× {item.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-200 pt-3 text-xs text-slate-500">
+                  <span>{record.itemCount} items</span>
+                  <span className="capitalize">Reward: {record.paymentStatus.replace(/_/g, " ")}</span>
+                </div>
+              </motion.article>
+            ))}
+          </div>
+        </motion.section>
+      ) : null}
+
+      <motion.section
+        aria-labelledby="recent-rescues-title"
+        className={`${PANEL} overflow-hidden`}
+        initial={reduceMotion ? false : { opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: reduceMotion ? 0 : 0.38, delay: reduceMotion ? 0 : 0.16 }}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-6">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-teal-700">Autonomous activity</div>
+            <h2 id="recent-rescues-title" className="mt-1 text-lg font-bold tracking-[-0.025em] text-slate-950">Recent rescues</h2>
+          </div>
+          <motion.button
+            type="button"
+            onClick={() => handleAction("/alerts")}
+            className="text-sm font-semibold text-teal-700"
+            whileHover={reduceMotion ? undefined : { x: 2 }}
+            whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+          >
+            View log
+          </motion.button>
+        </div>
+        <div className="divide-y divide-slate-100 px-5 sm:px-6">
+          {dashboard.rescues.map((rescue, index) => (
+            <motion.article
+              key={`${rescue.name}-${rescue.time}`}
+              className="flex items-center justify-between gap-4 py-4"
+              initial={reduceMotion ? false : { opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: reduceMotion ? 0 : 0.32, delay: reduceMotion ? 0 : 0.2 + index * 0.055 }}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+                  {rescue.type === "Value Vault" ? <Gift className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-bold text-slate-900">{rescue.name}</div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
                     <span>{rescue.time}</span>
-                    <span className="w-1 h-1 rounded-full bg-border"></span>
-                    <span className="text-brand font-medium">{rescue.reward}</span>
+                    <span className="font-medium text-teal-700">{rescue.reward}</span>
                   </div>
                 </div>
               </div>
-              <div className="text-right hidden sm:block">
-                <div className="text-sm font-bold text-emerald-600">{rescue.status}</div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{rescue.network}</div>
+              <div className="hidden text-right sm:block">
+                <div className="text-sm font-bold text-emerald-700">{rescue.status}</div>
+                <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{displayFriendlySettlement(rescue.network)}</div>
               </div>
-            </div>
+            </motion.article>
           ))}
         </div>
-      </div>
-    </div>
+      </motion.section>
+
+      <motion.section
+        className={`${PANEL} relative overflow-hidden bg-slate-950 p-5 text-white sm:p-6`}
+        initial={reduceMotion ? false : { opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: reduceMotion ? 0 : 0.38, delay: reduceMotion ? 0 : 0.2 }}
+      >
+        <div className="absolute right-[-34px] top-[-34px] h-36 w-36 rounded-full bg-teal-400/15 blur-2xl" />
+        <div className="relative flex flex-col justify-between gap-5 md:flex-row md:items-end">
+          <div className="max-w-3xl">
+            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.15em] text-teal-300">
+              <Sparkles className="h-3.5 w-3.5" /> AI executive brief
+            </div>
+            <p className="mt-3 text-base leading-7 text-slate-100 sm:text-lg">{dashboard.executiveBrief}</p>
+          </div>
+          <motion.button
+            type="button"
+            onClick={() => handleAction("/reports")}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950"
+            whileHover={reduceMotion ? undefined : { y: -2 }}
+            whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+          >
+            View analysis <ArrowRight className="h-4 w-4" />
+          </motion.button>
+        </div>
+      </motion.section>
+    </motion.div>
   );
 }

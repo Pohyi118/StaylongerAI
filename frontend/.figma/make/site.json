@@ -1,6 +1,12 @@
 {
   "title": "StayLongerAI",
   "description": "AI-assisted customer retention, WhatsApp inventory onboarding, and demo-safe rewards.",
+  "icons": {
+    "icon": "/staylonger-logo.png"
+  },
+  "openGraph": {
+    "image": "/staylonger-logo.png"
+  },
   "robots": {
     "index": false
   },

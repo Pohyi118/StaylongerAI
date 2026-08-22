@@ -7,8 +7,11 @@ import os
 import unittest
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 from unittest import mock
+
+from fastapi.testclient import TestClient
 
 
 # Prevent repository .env values from being loaded into module-level clients
@@ -31,7 +34,10 @@ _SAFE_IMPORT_ENV = {
 }
 
 with mock.patch.dict(os.environ, _SAFE_IMPORT_ENV, clear=False):
+    from api.index import app as vercel_app
     from backend import main as backend
+    from backend import report_export
+    from backend.report_export import build_report_html, render_report_pdf
     from backend.solana_agent import LocalSolanaAgent
 
 
@@ -134,6 +140,103 @@ class BackendRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.enterContext(
             mock.patch.object(backend, "TWILIO_SEND_LOCK", asyncio.Lock())
         )
+
+    async def test_report_html_embeds_the_brand_logo(self) -> None:
+        report_html = build_report_html("Last 30 Days")
+
+        self.assertIn('<img class="brand-logo"', report_html)
+        self.assertIn("data:image/png;base64,", report_html)
+        self.assertNotIn('class="brand-mark"', report_html)
+
+    async def test_report_pdf_uses_serverless_renderer_without_chrome(self) -> None:
+        with mock.patch.object(report_export, "_chrome_executable", return_value=None):
+            pdf = render_report_pdf("Last 30 Days")
+
+        self.assertTrue(pdf.startswith(b"%PDF-"))
+        self.assertGreater(len(pdf), 1024)
+        self.assertIn(b"/Image", pdf)
+
+    async def test_report_logo_falls_back_to_deployed_dashboard_asset(self) -> None:
+        canonical_logo = report_export.BRAND_LOGO_PATH.read_bytes()
+        response = mock.Mock()
+        response.read.return_value = canonical_logo
+        response_context = mock.MagicMock()
+        response_context.__enter__.return_value = response
+
+        with (
+            mock.patch.object(
+                report_export,
+                "BRAND_LOGO_PATH",
+                Path("missing-staylonger-logo.png"),
+            ),
+            mock.patch.dict(
+                os.environ,
+                {"DASHBOARD_BASE_URL": "https://staylonger.example"},
+                clear=False,
+            ),
+            mock.patch.object(report_export, "urlopen", return_value=response_context) as download,
+        ):
+            downloaded_logo = report_export._brand_logo_bytes()
+
+        self.assertEqual(downloaded_logo, canonical_logo)
+        request = download.call_args.args[0]
+        self.assertEqual(request.full_url, "https://staylonger.example/staylonger-logo.png")
+
+    async def test_vercel_entrypoint_keeps_api_and_webhook_paths_working(self) -> None:
+        with TestClient(vercel_app) as client:
+            dashboard_response = client.get("/api/dashboard")
+            webhook_response = client.get("/api/webhook")
+
+        self.assertEqual(dashboard_response.status_code, 200)
+        self.assertEqual(
+            dashboard_response.json().get("title"),
+            "Revenue Command Center",
+        )
+        self.assertEqual(webhook_response.status_code, 200)
+        self.assertEqual(webhook_response.json().get("status"), "ok")
+
+    async def test_reward_link_uses_vercel_production_url_when_configured(self) -> None:
+        environment = {
+            "DASHBOARD_BASE_URL": "",
+            "VERCEL_PROJECT_PRODUCTION_URL": "staylongerai.vercel.app",
+        }
+
+        with mock.patch.dict(os.environ, environment, clear=False):
+            dashboard_url = backend.generate_dashboard_url("whatsapp:+60123456789")
+
+        self.assertTrue(dashboard_url.startswith("https://staylongerai.vercel.app/reward?"))
+
+    async def test_twilio_signature_validation_uses_the_public_vercel_webhook_url(self) -> None:
+        if backend.RequestValidator is None:
+            self.skipTest("Twilio signature validation dependency is unavailable.")
+
+        auth_token = "test-auth-token"
+        form_data = {
+            "MessageSid": ["SM123"],
+            "From": ["whatsapp:+60123456789"],
+        }
+        expected_url = "https://staylongerai.vercel.app/webhook"
+        signature = backend.RequestValidator(auth_token).compute_signature(
+            expected_url,
+            {key: values[0] for key, values in form_data.items()},
+        )
+        request = _FakeRequest(b"")
+        request.headers["X-Twilio-Signature"] = signature
+
+        with (
+            mock.patch.dict(
+                os.environ,
+                {
+                    "DASHBOARD_BASE_URL": "",
+                    "VERCEL_PROJECT_PRODUCTION_URL": "staylongerai.vercel.app",
+                    "TWILIO_WEBHOOK_URL": "",
+                },
+                clear=False,
+            ),
+            mock.patch.object(backend, "TWILIO_AUTH_TOKEN", auth_token),
+            mock.patch.object(backend, "TWILIO_VALIDATE_SIGNATURE", True),
+        ):
+            self.assertTrue(backend._validate_twilio_request(request, form_data))
 
     async def test_reward_token_generation_and_claim_are_idempotent(self) -> None:
         sender = "whatsapp:+60123456789"

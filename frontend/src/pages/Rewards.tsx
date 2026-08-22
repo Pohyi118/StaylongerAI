@@ -1,7 +1,21 @@
 import { useEffect, useState } from "react";
-import { Gift, Wallet, Zap, CheckCircle2, History, Crown, PauseCircle } from "lucide-react";
+import {
+  Activity,
+  ArrowRight,
+  CheckCircle2,
+  CircleDollarSign,
+  Gift,
+  HandHeart,
+  History,
+  Landmark,
+  Sparkles,
+  Ticket,
+  TrendingUp,
+  WalletCards,
+} from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import { useNavigate } from "react-router-dom";
-import { cn } from "../App";
+import { CountUp } from "../components/premium-motion";
 import { fetchJson } from "../lib/api";
 
 type RewardStatus = {
@@ -19,164 +33,313 @@ const DEMO_REWARD_STATUS: RewardStatus = {
   network: "Solana devnet",
   asset: "USDC",
   defaultAmount: 50,
-  reason: "Blockchain credentials are not configured, so reward payments are simulated.",
+  reason: "Reward funding is in preview mode.",
 };
 
-const SAMPLE_TRANSACTIONS = [
-  { company: "Nexora Solutions", amount: 50, type: "GrabFood RM50", time: "12m ago" },
-  { company: "OrbitWorks", amount: 30, type: "Shopee RM30", time: "2h ago" },
-  { company: "Lumina Tech", amount: 100, type: "AWS Credit", time: "5h ago" },
-  { company: "ScaleForge", amount: 50, type: "GrabFood RM50", time: "1d ago" },
+const rewardMethods = [
+  {
+    title: "Partner vouchers",
+    description: "Send useful local value at the moment a customer needs it.",
+    detail: "GrabFood, Shopee, Starbucks",
+    icon: Ticket,
+    tone: "bg-amber-50 text-amber-700 ring-amber-100",
+  },
+  {
+    title: "Subscription pause",
+    description: "Create breathing room while the account gets back on track.",
+    detail: "Pause billing for 1 to 2 months",
+    icon: Landmark,
+    tone: "bg-slate-100 text-slate-700 ring-slate-200",
+  },
+  {
+    title: "Feature upgrade",
+    description: "Unlock the right capability to remove a product blocker.",
+    detail: "Premium access for 30 days",
+    icon: Sparkles,
+    tone: "bg-teal-50 text-teal-700 ring-teal-100",
+  },
+  {
+    title: "Product credits",
+    description: "Apply targeted value to the next invoice automatically.",
+    detail: "Flexible invoice credit",
+    icon: WalletCards,
+    tone: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+  },
+] as const;
+
+const rewardActivity = [
+  { customer: "Nexora Solutions", reward: "GrabFood voucher", value: "RM50", impact: "RM4.8K protected", time: "12 min ago", status: "Delivered" },
+  { customer: "OrbitWorks", reward: "Invoice credit", value: "RM30", impact: "RM2.1K protected", time: "2 hr ago", status: "Claimed" },
+  { customer: "Lumina Tech", reward: "Feature upgrade", value: "RM100", impact: "RM8.6K protected", time: "5 hr ago", status: "Delivered" },
+  { customer: "ScaleForge", reward: "Subscription pause", value: "RM50", impact: "RM3.2K protected", time: "Yesterday", status: "Delivered" },
 ];
+
+const motionEase = [0.22, 1, 0.36, 1] as const;
 
 export default function Rewards() {
   const navigate = useNavigate();
+  const shouldReduceMotion = useReducedMotion();
   const [rewardStatus, setRewardStatus] = useState<RewardStatus>(DEMO_REWARD_STATUS);
-  const isLive = rewardStatus.configured && rewardStatus.mode?.toLowerCase() === "live";
-
-  const handleAction = (route: string) => {
-    navigate(route);
-  };
 
   useEffect(() => {
-    let isMounted = true;
+    let active = true;
 
     fetchJson<RewardStatus>("/api/rewards/status", { cache: "no-store" })
       .then((status) => {
-        if (isMounted) {
-          setRewardStatus({ ...DEMO_REWARD_STATUS, ...status });
-        }
+        if (active) setRewardStatus({ ...DEMO_REWARD_STATUS, ...status });
       })
       .catch(() => {
-        if (isMounted) setRewardStatus(DEMO_REWARD_STATUS);
+        if (active) setRewardStatus(DEMO_REWARD_STATUS);
       });
 
     return () => {
-      isMounted = false;
+      active = false;
     };
   }, []);
 
+  const isLive = rewardStatus.configured && rewardStatus.mode.toLowerCase() === "live";
+  const transition = { duration: shouldReduceMotion ? 0 : 0.42, ease: motionEase };
+
   return (
-    <div className="flex flex-col gap-6 w-full animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-2">
-        <div className="relative">
-          <div className="absolute -inset-4 bg-gradient-to-r from-amber-500/20 via-peach-500/20 to-transparent blur-2xl -z-10 rounded-full"></div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
-            <Gift className="w-8 h-8 text-amber-500" />
-            Value Vault
-          </h1>
-          <p className="text-muted-foreground mt-1">Convert unused subscription value into personalized retention credits.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="bg-white/50 border border-border px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 shadow-sm">
-            <Wallet className="w-4 h-4 text-brand" />
-            {isLive ? "Live Agent" : "Demo Agent"}: <span className="font-bold">{rewardStatus.defaultAmount} {rewardStatus.asset} default</span>
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={transition}
+      className="flex w-full flex-col gap-6 pb-6"
+    >
+      <header className="flex flex-col gap-5 border-b border-slate-200 pb-6 md:flex-row md:items-end md:justify-between">
+        <div className="max-w-2xl">
+          <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-teal-700">
+            <span className="h-2 w-2 rounded-full bg-teal-600" />
+            Retention value engine
           </div>
-          <button type="button" onClick={() => handleAction("/reports")} className="bg-foreground text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-foreground/90 transition-colors shadow-sm">
-            Add Funds
-          </button>
+          <h1 className="text-3xl font-bold tracking-[-0.04em] text-slate-950 md:text-[2.15rem]">Value Vault</h1>
+          <p className="mt-2 max-w-xl text-[15px] leading-6 text-slate-600">
+            Turn unused subscription value into timely, personalized retention rewards.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm">
+            <span className={isLive ? "h-2 w-2 rounded-full bg-emerald-500" : "h-2 w-2 rounded-full bg-amber-400"} />
+            <span className="font-medium text-slate-700">{isLive ? "Reserve connected" : "Preview reserve"}</span>
+          </div>
+          <motion.button
+            type="button"
+            onClick={() => navigate("/rewards/funds")}
+            whileHover={shouldReduceMotion ? undefined : { y: -1 }}
+            whileTap={shouldReduceMotion ? undefined : { scale: 0.985 }}
+            className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-teal-800"
+          >
+            Add funds <ArrowRight className="h-4 w-4" />
+          </motion.button>
         </div>
       </header>
 
-      <div className={cn(
-        "px-4 py-3 rounded-xl border text-sm flex items-start gap-2",
-        isLive ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-amber-50 text-amber-700 border-amber-100"
-      )}>
-        <Zap className="w-4 h-4 shrink-0 mt-0.5" />
-        <span>
-          <strong>{isLive ? "Live reward settlement configured." : "Demo reward mode."}</strong>{" "}
-          {isLive
-            ? `${rewardStatus.network} will settle rewards in ${rewardStatus.asset}.`
-            : rewardStatus.reason || "No live blockchain transaction will be submitted."}
+      <motion.section
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...transition, delay: shouldReduceMotion ? 0 : 0.06 }}
+        className="grid gap-4 rounded-2xl border border-teal-100 bg-teal-50/70 p-4 sm:grid-cols-[auto_1fr_auto] sm:items-center"
+        aria-label="Value Vault insight"
+      >
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-teal-700 shadow-sm">
+          <HandHeart className="h-5 w-5" />
         </span>
-      </div>
+        <div>
+          <p className="text-sm font-semibold text-slate-900">AI is prioritizing value where it can change the outcome.</p>
+          <p className="mt-1 text-sm leading-5 text-slate-600">
+            Persuadable accounts receive the highest-fit rewards before value is released.
+          </p>
+        </div>
+        <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-teal-200 bg-white px-2.5 py-1 text-xs font-semibold text-teal-800">
+          <Activity className="h-3.5 w-3.5" /> Active
+        </span>
+      </motion.section>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="glass-card p-5 relative overflow-hidden bg-gradient-to-br from-amber-50/50 to-white">
-          <div className="text-sm font-medium text-muted-foreground mb-1">Total Unused Value Identified</div>
-          <div className="text-3xl font-bold text-foreground tabular-nums">RM12,450</div>
-        </div>
-        <div className="glass-card p-5 relative overflow-hidden bg-gradient-to-br from-emerald-50/50 to-white">
-          <div className="text-sm font-medium text-muted-foreground mb-1">Value Converted to Credits</div>
-          <div className="text-3xl font-bold text-emerald-600 tabular-nums">RM4,820</div>
-        </div>
-        <div className="glass-card p-5 relative overflow-hidden bg-gradient-to-br from-brand/5 to-white">
-          <div className="text-sm font-medium text-muted-foreground mb-1">Average Intervention Cost</div>
-          <div className="text-3xl font-bold text-brand tabular-nums">RM45.50</div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Intervention Library */}
-        <div className="xl:col-span-2 flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold">Intervention Library</h2>
-            <button type="button" onClick={() => handleAction("/alerts")} className="text-sm text-brand font-medium hover:underline">Manage Integrations</button>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {[
-              { title: "Partner Vouchers", desc: "GrabFood, Shopee, Starbucks", status: isLive ? "Ready (x402)" : "Demo (x402)", icon: Zap, bg: "bg-amber-100", color: "text-amber-600" },
-              { title: "Subscription Pause", desc: "Pause billing for 1-3 months", status: "Active (Internal)", icon: PauseCircle, bg: "bg-slate-100", color: "text-slate-600" },
-              { title: "Feature Upgrade", desc: "Unlock premium tier for 30 days", status: "Active (Internal)", icon: Crown, bg: "bg-brand/10", color: "text-brand" },
-              { title: "Product Credits", desc: "Apply credits to next invoice", status: "Active (Stripe)", icon: Wallet, bg: "bg-emerald-100", color: "text-emerald-600" }
-            ].map((lib, i) => (
-              <div key={i} className="glass-card p-5 hover:border-brand/30 transition-colors cursor-pointer group">
-                <div className="flex justify-between items-start mb-4">
-                  <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", lib.bg)}>
-                    <lib.icon className={cn("w-5 h-5", lib.color)} />
-                  </div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-black/5 px-2 py-1 rounded">
-                    {lib.status}
-                  </div>
-                </div>
-                <h3 className="font-bold text-lg">{lib.title}</h3>
-                <p className="text-sm text-muted-foreground mt-1">{lib.desc}</p>
+      <section className="grid gap-4 md:grid-cols-3" aria-label="Value Vault impact">
+        {[
+          { label: "Recoverable value", value: 12450, note: "Across 128 eligible accounts", icon: CircleDollarSign, accent: "text-slate-950" },
+          { label: "Value redeemed", value: 4820, note: "38.7% of available value", icon: Gift, accent: "text-teal-700" },
+          { label: "Retention impact", value: 92000, note: "Protected revenue attributed", icon: TrendingUp, accent: "text-emerald-700" },
+        ].map((metric, index) => {
+          const Icon = metric.icon;
+          return (
+            <motion.article
+              key={metric.label}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...transition, delay: shouldReduceMotion ? 0 : 0.1 + index * 0.05 }}
+              whileHover={shouldReduceMotion ? undefined : { y: -2 }}
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-sm font-medium text-slate-600">{metric.label}</p>
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-50 text-slate-500">
+                  <Icon className="h-4.5 w-4.5" />
+                </span>
               </div>
-            ))}
-          </div>
-        </div>
+              <CountUp value={metric.value} prefix="RM" className={`mt-5 block text-3xl font-bold tracking-[-0.045em] tabular-nums ${metric.accent}`} />
+              <p className="mt-2 text-xs font-medium text-slate-500">{metric.note}</p>
+            </motion.article>
+          );
+        })}
+      </section>
 
-        {/* Agent transaction examples and Solana/x402 configuration status */}
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold">Agent Transactions</h2>
-            <History className="w-5 h-5 text-muted-foreground" />
-          </div>
-
-          <div className="glass-card p-0 overflow-hidden flex flex-col h-full">
-            <div className="bg-black/5 p-4 border-b border-border text-xs font-medium text-muted-foreground uppercase tracking-wide flex justify-between">
-              <span>Autonomous Execution Examples</span>
-              <span>{isLive ? "Connected" : "Demo"}: {rewardStatus.network}</span>
+      <div className="grid gap-6 xl:grid-cols-[1.35fr_0.9fr]">
+        <section aria-labelledby="library-title">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Intervention library</p>
+              <h2 id="library-title" className="mt-1 text-xl font-bold tracking-[-0.025em] text-slate-950">Choose value with intent</h2>
             </div>
-            <div className="divide-y divide-border flex-1 overflow-y-auto">
-              {SAMPLE_TRANSACTIONS.map((tx, i) => (
-                <div key={i} className="p-4 hover:bg-white/60 transition-colors">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="font-bold text-sm">{tx.company}</div>
-                    <div className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" /> {isLive ? "Example" : "Simulated"}
-                    </div>
+            <motion.button
+              type="button"
+              onClick={() => navigate("/alerts")}
+              whileHover={shouldReduceMotion ? undefined : { x: 2 }}
+              className="inline-flex items-center gap-1 text-sm font-semibold text-teal-700 hover:text-teal-800"
+            >
+              Manage sources <ArrowRight className="h-4 w-4" />
+            </motion.button>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {rewardMethods.map((method, index) => {
+              const Icon = method.icon;
+              return (
+                <motion.article
+                  key={method.title}
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ ...transition, delay: shouldReduceMotion ? 0 : 0.2 + index * 0.05 }}
+                  whileHover={shouldReduceMotion ? undefined : { y: -2, borderColor: "rgba(13, 148, 136, 0.35)" }}
+                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_5px_18px_rgba(15,23,42,0.035)]"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className={`flex h-10 w-10 items-center justify-center rounded-lg ring-1 ${method.tone}`}>
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.09em] text-slate-600">Ready</span>
                   </div>
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <div className="text-xs text-foreground font-medium">{tx.type}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Protocol: x402</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-bold">{tx.amount} {rewardStatus.asset}</div>
-                      <div className="text-[10px] text-muted-foreground flex items-center justify-end gap-1 mt-0.5">
-                        {isLive ? "Illustrative record" : "No on-chain transaction"}
-                      </div>
-                    </div>
-                  </div>
+                  <h3 className="mt-5 text-base font-bold text-slate-950">{method.title}</h3>
+                  <p className="mt-1 text-sm leading-5 text-slate-600">{method.description}</p>
+                  <p className="mt-4 border-t border-slate-100 pt-3 text-xs font-medium text-slate-500">{method.detail}</p>
+                </motion.article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.05)]" aria-labelledby="vault-plan-title">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">AI allocation plan</p>
+                <h2 id="vault-plan-title" className="mt-1 text-lg font-bold text-slate-950">Where value goes next</h2>
+              </div>
+              <Sparkles className="h-5 w-5 text-teal-700" />
+            </div>
+          </div>
+          <ol className="divide-y divide-slate-100">
+            {[
+              ["01", "Identify", "Find unused value and qualified customer need."],
+              ["02", "Match", "Select the smallest reward with the strongest expected lift."],
+              ["03", "Measure", "Attribute protected revenue back to the intervention."],
+            ].map(([step, title, detail], index) => (
+              <motion.li
+                key={step}
+                initial={shouldReduceMotion ? false : { opacity: 0, x: 8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ ...transition, delay: shouldReduceMotion ? 0 : 0.26 + index * 0.06 }}
+                className="flex gap-3 px-5 py-4"
+              >
+                <span className="mt-0.5 text-xs font-bold tabular-nums text-teal-700">{step}</span>
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{title}</p>
+                  <p className="mt-1 text-sm leading-5 text-slate-600">{detail}</p>
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
+              </motion.li>
+            ))}
+          </ol>
+        </section>
       </div>
-    </div>
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.05)]" aria-labelledby="reward-activity-title">
+        <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <History className="h-4 w-4 text-slate-500" />
+              <h2 id="reward-activity-title" className="text-lg font-bold text-slate-950">Reward activity</h2>
+            </div>
+            <p className="mt-1 text-sm text-slate-600">Value sent and the business impact it is expected to protect.</p>
+          </div>
+          <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+            <CheckCircle2 className="h-3.5 w-3.5" /> {isLive ? "Live tracking" : "Preview tracking"}
+          </span>
+        </div>
+        <div className="divide-y divide-slate-100 md:hidden">
+          {rewardActivity.map((item, index) => (
+            <motion.article
+              key={`${item.customer}-${item.reward}-mobile`}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 7 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...transition, delay: shouldReduceMotion ? 0 : 0.32 + index * 0.045 }}
+              className="p-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{item.customer}</p>
+                  <p className="mt-1 truncate text-sm text-slate-600">{item.reward}</p>
+                </div>
+                <span className="shrink-0 rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700">{item.status}</span>
+              </div>
+              <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                <div>
+                  <dt className="text-xs font-medium text-slate-500">Reward value</dt>
+                  <dd className="mt-1 font-semibold tabular-nums text-slate-900">{item.value}</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-xs font-medium text-slate-500">Expected impact</dt>
+                  <dd className="mt-1 truncate font-semibold text-emerald-700">{item.impact}</dd>
+                </div>
+              </dl>
+              <p className="mt-4 border-t border-slate-100 pt-3 text-xs font-medium text-slate-500">Sent {item.time}</p>
+            </motion.article>
+          ))}
+        </div>
+        <div className="hidden overflow-x-auto md:block">
+          <table className="w-full min-w-[680px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
+              <tr>
+                <th className="px-5 py-3">Customer</th>
+                <th className="px-5 py-3">Reward</th>
+                <th className="px-5 py-3">Value</th>
+                <th className="px-5 py-3">Expected impact</th>
+                <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3 text-right">Sent</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rewardActivity.map((item, index) => (
+                <motion.tr
+                  key={item.customer}
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 7 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ ...transition, delay: shouldReduceMotion ? 0 : 0.32 + index * 0.045 }}
+                  className="transition-colors hover:bg-slate-50/80"
+                >
+                  <td className="px-5 py-4 font-semibold text-slate-900">{item.customer}</td>
+                  <td className="px-5 py-4 text-slate-600">{item.reward}</td>
+                  <td className="px-5 py-4 font-semibold tabular-nums text-slate-900">{item.value}</td>
+                  <td className="px-5 py-4 font-medium text-emerald-700">{item.impact}</td>
+                  <td className="px-5 py-4"><span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700">{item.status}</span></td>
+                  <td className="px-5 py-4 text-right text-slate-500">{item.time}</td>
+                </motion.tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </motion.div>
   );
 }

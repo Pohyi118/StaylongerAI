@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: staylongerai
+    runtime: python
+    plan: free
+    region: singapore
+    autoDeployTrigger: commit
+    buildCommand: pip install -r requirements.txt && npm --prefix frontend ci && npm --prefix frontend run build
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/dashboard
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"

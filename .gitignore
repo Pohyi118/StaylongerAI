@@ -79,4 +79,7 @@ Thumbs.db
 # Local tooling
 .local/
 .tmp/
+.vercel/
 
+.vercel
+.env*
